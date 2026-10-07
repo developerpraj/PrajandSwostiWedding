@@ -1,0 +1,30 @@
+﻿# Reviewed ideas: status
+
+| Idea | Status | Notes |
+|---|---|---|
+| Static `live.json` instead of polling Apps Script | Implemented | `apps-script/Live.gs` publishes to GitHub. Phones poll the static file and fall back to the API. |
+| Lock public writes | Implemented | `PUBLIC_WRITE_ACTIONS` + `withLock_` in `Code.gs` |
+| Guest/pass caching | Implemented | Versioned CacheService keys, invalidated on writes, and capped at the next reveal unlock |
+| Bride vs Groom team battle | Done (extended) | Check-in points (`points.checkIn`) and on-time bonus (`points.onTime`) were added. |
+| EXIF auto-sort uploads into events | Implemented | `App.takenAt` + `eventForTime_` (client and server) |
+| Large-file fallback | Implemented | Shows a warning plus a `media.largeAlbumUrl` link. |
+| Elder Mode | Implemented | A+ toggle, large text, essentials only, help call button |
+| Offline pass at the gate | Implemented | Last pass is saved in localStorage. |
+| Serif memorial typography | Implemented | `css/memorial.css` |
+| Accessibility (touch targets, focus, reduced motion) | Implemented | `css/mobile.css` |
+| Printable memory book | Implemented | Admin → Memorial → Memory book (browser print to PDF keeps Devanagari intact). |
+| Health monitoring | Implemented | `apps-script/Health.gs` hourly email |
+| React / Tailwind / shadcn prompts | Not applicable | The app is vanilla HTML/JS with no build step. |
+| gviz CSV reads from the Sheet | Not applicable | It requires a public sheet and would expose guest data. |
+| wsrv.nl image proxy | Optional | Drive thumbnails plus service-worker caching are enough for now. |
+| Full EXIF library | Future | The current parser is heuristic; fall back to `lastModified`. |
+| In-app browser banner (WhatsApp/Viber/Facebook) | Implemented | `App.inAppBrowser` + `App.inAppBanner`; Google sign-in hidden inside webviews (`disallowed_useragent`). |
+| "Find My Pass" lost-link recovery | Implemented | `findPass` (phone + surname/member name, unique match only); session persists in `localStorage` until Sign out. |
+| Stacked mixed-language text on small screens | Implemented | `I18N.biHtml` + `.bi-ne/.bi-en` CSS under 640px; flexible card heights. |
+| Status-based ritual ticker | Implemented | Up next → Happening now → ✓, set by admin. No second-level countdowns. |
+| Client photo compression (data saver) | Implemented | `App.compressImage`: photos over 1.5 MB (`media.compressMB`) to JPEG ≤2048px; videos stay original. |
+| Direct-to-Drive resumable uploads | Implemented | `startUpload` returns the Drive resumable URL; browser PUTs raw binary in 8 MB chunks. No Base64 via `doPost`. |
+| High-contrast gate pass | Implemented | White quiet zone around the QR in any theme, plus a brightness reminder. |
+| Offline-first door scanner | Implemented | Admin → Door: `door_list` + `pending_checkins` in `localStorage`, background sync with scan time. |
+| 48×48 px tap targets | Implemented | `css/mobile.css` field-readiness block. |
+| JS QR decoder (jsQR) for iOS Safari | Future | Door uses native `BarcodeDetector`; elsewhere volunteers use the 3-letter name search. |

@@ -1,0 +1,21 @@
+// Paste your Apps Script Web App /exec URL here after deploying apps-script/Code.gs
+// MODE: 'demo' = fake data from demo-data/ (testing only), 'prod' = real Google Sheets/Drive backend.
+// Default: demo on localhost, prod everywhere else. Override with ?mode=demo or ?mode=prod (remembered in this browser).
+(function () {
+  const q = new URLSearchParams(location.search).get('mode');
+  if (q === 'demo' || q === 'prod') localStorage.setItem('appMode', q);
+  const local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || location.protocol === 'file:';
+  const mode = localStorage.getItem('appMode') || (local ? 'demo' : 'prod');
+  window.APP_CONFIG = {
+    MODE: mode,
+    API_URL: 'https://script.google.com/macros/s/AKfycbwXYK3r9BnMLCu1iN1NufODFHAsz1yj4ovgutzlL9F_wVSlh85ozQwObVFNrr7q_u8o_w/exec',
+    // Static live banner/leaderboard file written by Apps Script (Live.gs). Same site = GitHub Pages CDN.
+    LIVE_JSON_URL: 'live.json',
+    LIVE_REFRESH_MS: 20000,
+    ADMIN_REFRESH_MS: 15000,
+    DEMO_MODE: mode === 'demo'
+  };
+})();
+if (window.APP_CONFIG.DEMO_MODE && document.currentScript) {
+  document.write('<script src="' + document.currentScript.src.replace(/js\/config\.js.*$/, 'demo-data/demo-api.js') + '"><\/script>');
+}

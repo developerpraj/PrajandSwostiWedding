@@ -1,0 +1,33 @@
+﻿// Smoke test: loads demo-data/demo-api.js in a minimal fake browser and calls every mock action.
+const fs = require('fs'), path = require('path'), vm = require('vm');
+const store = () => { const m = new Map(); return { getItem: k => m.has(k) ? m.get(k) : null, setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), clear: () => m.clear(), key: i => [...m.keys()][i], get length() { return m.size; } }; };
+const ls = store(), ss = store();
+const ctx = { console, Date, Math, JSON, Promise, setTimeout, clearTimeout, URLSearchParams, localStorage: ls, sessionStorage: ss,
+  location: { pathname: '/index.html', search: '', reload() {} }, document: { body: null, documentElement: {}, addEventListener() {}, getElementById: () => null },
+  MutationObserver: class { observe() {} } };
+vm.createContext(ctx);
+vm.runInContext('window = globalThis;', ctx);
+path.join(__dirname, '..', '..', 'demo-data', 'demo-api.js')
+const api = vm.runInContext('window.DEMO_API', ctx), call = (a, d) => api.handle(a, d);
+const ok = []; const fail = [];
+const run = (n, fn) => { try { fn(); ok.push(n); } catch (e) { fail.push(n + ': ' + e.message); } };
+run('getConfig', () => call('getConfig'));
+run('getHome', () => call('getHome', { guestId: 'G001' }));
+run('getGuest', () => { if (!call('getGuest', { guestId: 'G001' }).guest) throw new Error('no guest'); });
+run('getPass', () => call('getPass', { guestId: 'G001' }));
+run('getGallery', () => call('getGallery', {}));
+run('getGames', () => call('getGames', { guestId: 'G001' }));
+run('submitAnswer', () => call('submitAnswer', { guestId: 'G001', memberId: 'M001', gameId: 'GM1', choice: 0 }));
+run('getLeaderboard', () => call('getLeaderboard'));
+run('getMemorial', () => call('getMemorial'));
+run('lightDiya', () => call('lightDiya', { guestId: 'G001', name: 'x' }));
+run('upload', () => { const s = call('startUpload', { guestId: 'G001', fileName: 'a.jpg', mimeType: 'image/jpeg' }); const r = call('finishUpload', { token: s.token, fileId: 'demoX' }); if (!r.media) throw new Error('no media'); });
+run('signIn', () => call('signIn', { phone: '+977 9800000001', code: 'DEMO01' }));
+run('resolveCode', () => call('resolveCode', { code: 'DEMO01' }));
+run('register', () => call('register', { guestId: 'G001', form: {}, events: [] }));
+for (const a of ['admin.stats', 'admin.guests', 'admin.people', 'admin.settings', 'admin.gifts', 'admin.thankQueue', 'admin.analytics', 'admin.admins', 'admin.me', 'admin.planner', 'admin.venues'])
+  run(a, () => call(a, {}));
+run('admin.saveCashGift', () => call('admin.saveCashGift', { name: 'X', amount: 100, currency: 'NPR' }));
+run('admin.checkIn', () => call('admin.checkIn', { guestId: 'G001' }));
+console.log('OK ' + ok.length);
+if (fail.length) { console.log('FAIL\n' + fail.join('\n')); process.exit(1); }

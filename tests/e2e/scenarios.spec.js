@@ -1,0 +1,153 @@
+// Scenario tests for guest flows and link control in demo mode.
+const { test, expect, openDemo, resetDemo, adminLogin } = require('./fixtures');
+
+const call = (page, action, data) => page.evaluate(([a, d]) =>
+  window.API.call(a, d).then(v => ({ ok: true, v }), e => ({ ok: false, err: String(e && e.message || e) })), [action, data]);
+
+const setSetting = (page, key, value) => page.evaluate(([k, v]) => {
+  const db = JSON.parse(localStorage.getItem('demoDB'));
+  const r = db.Settings.find(s => s.Key === k);
+  if (r) r.Value = v; else db.Settings.push({ Key: k, Value: v });
+  localStorage.setItem('demoDB', JSON.stringify(db));
+  sessionStorage.removeItem('config');
+  Object.keys(localStorage).filter(k => k.indexOf('api:') === 0).forEach(k => localStorage.removeItem(k));
+}, [key, value]);
+
+const patchGuest = (page, gid, patch) => page.evaluate(([g, p]) => {
+  const db = JSON.parse(localStorage.getItem('demoDB'));
+  Object.assign(db.Guests.find(x => x.GuestId === g), p);
+  localStorage.setItem('demoDB', JSON.stringify(db));
+  Object.keys(localStorage).filter(k => k.indexOf('api:') === 0).forEach(k => localStorage.removeItem(k));
+}, [gid, patch]).then(() => page.reload()).then(() => page.waitForFunction(() => !!window.DEMO_API));
+
+test.beforeEach(async ({ page }) => { await resetDemo(page); });
+
+test('invite code link ?c=DEMO02 resolves to G002', async ({ page }) => {
+  await openDemo(page, 'index.html?c=DEMO02');
+  await page.waitForLoadState('networkidle');
+  const r = await call(page, 'resolveCode', { code: 'demo02' });
+  expect(r).toEqual({ ok: true, v: { guestId: 'G002' } });
+  const bad = await call(page, 'resolveCode', { code: 'NOPE99' });
+  expect(bad.ok).toBe(false);
+  expect(bad.err).toMatch(/not found/i);
+});
+
+test('?g= link stores the guest id', async ({ page }) => {
+  await openDemo(page, 'index.html?g=G003');
+  expect(await page.evaluate(() => localStorage.getItem('guestId'))).toBe('G003');
+  const d = await call(page, 'getGuest', { guestId: 'G003' });
+  expect(d.ok).toBe(true);
+});
+
+test('register and RSVP updates the guest', async ({ page }) => {
+  await openDemo(page, 'register.html');
+  const r = await call(page, 'register', { guestId: 'G005', form: { Status: 'Attending', AttendingCount: 2 } });
+  expect(r.ok).toBe(true);
+  const g = await page.evaluate(() => JSON.parse(localStorage.getItem('demoDB')).Guests.find(x => x.GuestId === 'G005'));
+  expect(g.Registered).toBe('TRUE');
+  expect(g.Status).toBe('Attending');
+  expect((await call(page, 'markAttended', { guestId: 'G005', events: [{ EventId: 'E1', attended: true, count: 2 }] })).ok).toBe(true);
+  expect((await call(page, 'requestAccommodation', { guestId: 'G005', nights: 2, people: 2 })).ok).toBe(true);
+  expect((await call(page, 'checkName', { name: 'x' })).v).toEqual({ duplicate: false });
+  expect((await call(page, 'searchPeople', { q: 'sh', guestId: 'G001' })).v.length).toBeGreaterThan(0);
+});
+
+test('sign in returns the household', async ({ page }) => {
+  await openDemo(page, 'signin.html');
+  const r = await call(page, 'signIn', { phone: '+977 9800000001', code: 'DEMO01' });
+  expect(r.ok).toBe(true);
+  expect(r.v.guestId).toBe('G001');
+  expect(r.v.members.length).toBeGreaterThan(0);
+});
+
+test('demo uploads validate type and size, then stay local', async ({ page }) => {
+  await openDemo(page, 'photos.html');
+  const bad = await call(page, 'startUpload', { guestId: 'G001' });
+  expect(bad.ok).toBe(false);
+  expect(bad.err).toMatch(/photos and videos/i);
+  const ok = await call(page, 'startUpload', { guestId: 'G001', mimeType: 'image/jpeg', size: 1000 });
+  expect(ok.ok).toBe(true);
+  expect(ok.v.uploadUrl).toMatch(/^demo:\/\//);
+});
+
+test('gift, games, pass, memorial and whisper actions', async ({ page }) => {
+  await openDemo(page, 'gift.html');
+  expect((await call(page, 'getGiftInfo', {})).v.on).toBe(true);
+  expect((await call(page, 'sendGift', { guestId: 'G001', method: 'eSewa', amount: 1001 })).ok).toBe(true);
+  expect((await call(page, 'getGames', { guestId: 'G001' })).ok).toBe(true);
+  const lb = await call(page, 'getLeaderboard', {});
+  expect(lb.v.teams).toHaveProperty('Bride');
+  expect((await call(page, 'getPass', { guestId: 'G001' })).ok).toBe(true);
+  expect((await call(page, 'getMemorial', {})).ok).toBe(true);
+  expect((await call(page, 'lightDiya', { guestId: 'G001', name: 'Hari' })).v.diyaCount).toBeGreaterThan(0);
+  expect((await call(page, 'submitMemory', { guestId: 'G001', text: 'Hi' })).v).toEqual({ pending: true });
+  expect((await call(page, 'sendWhisper', { guestId: 'G001', text: 'Hello' })).ok).toBe(true);
+  const db = await page.evaluate(() => JSON.parse(localStorage.getItem('demoDB')));
+  expect(db.Gifts.some(g => g.Amount === 1001)).toBe(true);
+  expect(db.Whispers.some(w => w.Text === 'Hello')).toBe(true);
+});
+
+test('pass page renders a QR for the signed-in guest', async ({ page }) => {
+  await openDemo(page, 'pass.html');
+  await page.waitForLoadState('networkidle');
+  await expect(page.locator('canvas, svg, img[src*="qr"], #qr *').first()).toBeAttached({ timeout: 10000 });
+});
+
+test('language toggle changes document language', async ({ page }) => {
+  await openDemo(page, 'index.html');
+  await page.waitForLoadState('networkidle');
+  for (const l of ['en', 'ne', 'mix']) {
+    await page.evaluate(lang => window.I18N.set(lang), l);
+    expect(await page.evaluate(() => window.I18N.mode())).toBe(l);
+    expect(await page.evaluate(() => localStorage.getItem('lang') || window.I18N.mode())).toBe(l);
+  }
+  expect(await page.evaluate(() => window.I18N.t('nav.whisper'))).not.toBe('nav.whisper');
+});
+
+test('closed app shows the closed screen', async ({ page }) => {
+  await openDemo(page, 'index.html');
+  await setSetting(page, 'wedding.endDate', '2000-01-01T00:00');
+  await page.reload();
+  await page.waitForLoadState('networkidle');
+  const title = await page.evaluate(() => window.I18N.t('closed.title'));
+  await expect(page.locator('main')).toContainText(title.split(/\s*\/\s*|\n/)[0].slice(0, 12), { timeout: 10000 });
+});
+
+test('feature flags off keep pages error-free', async ({ page }) => {
+  await openDemo(page, 'index.html');
+  for (const f of ['games', 'gifts', 'memorial', 'media', 'registration', 'rituals', 'live']) await setSetting(page, 'feature.' + f, 'FALSE');
+  for (const p of ['index.html', 'games.html', 'gift.html', 'memorial.html', 'photos.html', 'register.html', 'ceremony.html']) {
+    await openDemo(page, p);
+    await page.waitForLoadState('networkidle');
+  }
+});
+
+test('revoked link is blocked', async ({ page }) => {
+  test.info().annotations.push({ type: 'allow-errors' });
+  await openDemo(page, 'index.html');
+  await patchGuest(page, 'G001', { LinkRevoked: 'TRUE' });
+  const r = await call(page, 'getGuest', { guestId: 'G001' });
+  expect(r.ok).toBe(false);
+  expect(r.err).toMatch(/turned off/);
+  expect((await call(page, 'resolveCode', { code: 'DEMO01' })).err).toMatch(/turned off/);
+});
+
+test('expired link is blocked, future expiry is allowed', async ({ page }) => {
+  test.info().annotations.push({ type: 'allow-errors' });
+  await openDemo(page, 'index.html');
+  await patchGuest(page, 'G002', { LinkExpires: '2000-01-01' });
+  expect((await call(page, 'getGuest', { guestId: 'G002' })).err).toMatch(/expired/);
+  await patchGuest(page, 'G002', { LinkExpires: '2999-01-01' });
+  expect((await call(page, 'getGuest', { guestId: 'G002' })).ok).toBe(true);
+});
+
+test('admin linkControl revokes, restores and rotates code', async ({ page }) => {
+  await adminLogin(page, 'admin/index.html');
+  const off = await call(page, 'admin.linkControl', { guestId: 'G003', revoked: true });
+  expect(off.v.LinkRevoked).toBe('TRUE');
+  const on = await call(page, 'admin.linkControl', { guestId: 'G003', revoked: false, newCode: true });
+  expect(on.v.LinkRevoked).toBe('');
+  expect(on.v.InviteCode).not.toBe('DEMO03');
+  expect((await call(page, 'resolveCode', { code: 'DEMO03' })).ok).toBe(false);
+  expect((await call(page, 'admin.linkControl', { guestId: 'NOPE' })).ok).toBe(false);
+});

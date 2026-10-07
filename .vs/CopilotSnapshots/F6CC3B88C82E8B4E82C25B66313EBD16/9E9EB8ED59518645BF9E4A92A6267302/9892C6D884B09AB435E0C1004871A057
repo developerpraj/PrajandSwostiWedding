@@ -1,0 +1,39 @@
+﻿// Shared Playwright fixtures: collects JS coverage for every test, fails on uncaught page errors,
+// and offers helpers for demo mode and admin login.
+const base = require('@playwright/test');
+const MCR = require('monocart-coverage-reports');
+const coverageOptions = require('../coverage.config.js');
+
+const test = base.test.extend({
+  page: async ({ page }, use, testInfo) => {
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('dialog', d => d.accept());
+    await page.coverage.startJSCoverage({ resetOnNavigation: false });
+    await use(page);
+    const cov = await page.coverage.stopJSCoverage();
+    await MCR(coverageOptions).add(cov);
+    if (!testInfo.annotations.some(a => a.type === 'allow-errors')) {
+      base.expect(errors, 'uncaught page errors').toEqual([]);
+    }
+  }
+});
+
+async function openDemo(page, url) {
+  await page.goto(url + (url.includes('?') ? '&' : '?') + 'mode=demo');
+  await page.waitForFunction(() => !!window.DEMO_API);
+}
+
+async function resetDemo(page) {
+  await page.goto('index.html?mode=demo');
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); localStorage.setItem('appMode', 'demo'); });
+}
+
+async function adminLogin(page, url) {
+  await openDemo(page, url || 'admin/index.html');
+  await page.evaluate(() => sessionStorage.setItem('adminKey', 'demo'));
+  await page.reload();
+  await page.waitForFunction(() => !!window.DEMO_API);
+}
+
+module.exports = { test, expect: base.expect, openDemo, resetDemo, adminLogin };

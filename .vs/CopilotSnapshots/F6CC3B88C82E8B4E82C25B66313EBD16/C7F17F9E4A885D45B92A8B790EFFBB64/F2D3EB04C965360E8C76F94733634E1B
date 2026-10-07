@@ -1,0 +1,557 @@
+﻿// DEMO ONLY - fake data so the app can be previewed locally without the Google Apps Script backend.
+// Turned on by DEMO_MODE: true in js/config.js. Changes you make are kept in this browser only (localStorage "demoDB").
+// Reset: run localStorage.removeItem('demoDB') in the browser console, or click "Reset" in the demo banner.
+(function () {
+  const now = new Date();
+  const iso = (days, h) => { const d = new Date(now); d.setDate(d.getDate() + days); d.setHours(h || 10, 0, 0, 0); return d.toISOString().slice(0, 16); };
+  const ago = mins => new Date(Date.now() - mins * 60000).toISOString();
+  const pic = (seed, w, h) => 'https://picsum.photos/seed/' + seed + '/' + (w || 600) + '/' + (h || 600);
+
+  function seed() {
+    const S = (k, v, t, g, d) => ({ Key: k, Value: v, Type: t || 'text', Group: g || 'General', Description: d || k });
+    return {
+      Settings: [
+        S('lang.default', 'mix', 'select:en,ne,mix'), S('couple.brideEn', 'Sita'), S('couple.brideNe', 'सीता'),
+        S('couple.groomEn', 'Ram'), S('couple.groomNe', 'राम'), S('wedding.date', iso(30, 10), 'datetime'),
+        S('wedding.endDate', iso(60, 23), 'datetime'), S('app.keepMemorialAfterEnd', 'TRUE', 'toggle'),
+        S('feature.registration', 'TRUE', 'toggle', 'Features'), S('registration.open', 'TRUE', 'toggle', 'Registration'),
+        S('feature.accommodation', 'TRUE', 'toggle', 'Features'), S('accommodation.open', 'TRUE', 'toggle', 'Accommodation'),
+        S('feature.drinkBand', 'TRUE', 'toggle', 'Features'), S('drink.legalAge', '18', 'number', 'Drinking'),
+        S('feature.nameTags', 'TRUE', 'toggle', 'Features'), S('feature.live', 'TRUE', 'toggle', 'Features'),
+        S('feature.memorial', 'TRUE', 'toggle', 'Features'), S('memorial.moderation', 'TRUE', 'toggle', 'Memorial'),
+        S('feature.media', 'TRUE', 'toggle', 'Features'), S('media.moderation', 'FALSE', 'toggle', 'Media'),
+        S('media.maxSizeMB', '500', 'number', 'Media'), S('media.maxVideoMB', '250', 'number', 'Media'),
+        S('media.categories', 'Candid|BTS|Video Guestbook / Blessing', 'text', 'Media'),
+        S('feature.rituals', 'TRUE', 'toggle', 'Features'), S('feature.games', 'TRUE', 'toggle', 'Features'),
+        S('feature.gifts', 'TRUE', 'toggle', 'Features'), S('feature.venues', 'TRUE', 'toggle', 'Features'),
+        S('feature.invites', 'TRUE', 'toggle', 'Features'), S('feature.nudges', 'TRUE', 'toggle', 'Features'),
+        S('feature.sideThemes', 'TRUE', 'toggle', 'Features'), S('feature.attended', 'TRUE', 'toggle', 'Features'),
+        S('points.upload', '5', 'number', 'Games'), S('gift.currency', 'NPR', 'text', 'Gifts'),
+        S('points.checkIn', '5', 'number', 'Games'), S('points.onTime', '5', 'number', 'Games'),
+        S('feature.elderMode', 'TRUE', 'toggle', 'Features'), S('app.helpPhone', '+9779800000000', 'text', 'General'),
+        S('media.largeAlbumUrl', 'https://photos.google.com/', 'text', 'Media'),
+        S('engage.promptsEn', 'Share a photo with the couple|Share your outfit of the day|Capture a candid laugh', 'text', 'Engagement'),
+        S('engage.promptsNe', 'दुलाहा-दुलहीसँगको फोटो बाँड्नुहोस्|आजको पहिरनको फोटो बाँड्नुहोस्|हाँसेको क्षण कैद गर्नुहोस्', 'text', 'Engagement'),
+        S('thanks.tplGift', 'Dear {name}, thank you so much for the {gift} and for joining us at {event}. With love, {couple}', 'text', 'Thank-yous'),
+        S('thanks.tplPresence', 'Dear {name}, your presence at {event} meant the world to us. With love, {couple}', 'text', 'Thank-yous'),
+        S('thanks.tplNe', 'प्रिय {name}, {event} मा तपाईंको उपस्थिति र मायाको लागि धेरै धन्यवाद। {couple}', 'text', 'Thank-yous'),
+        S('auth.phone', 'TRUE', 'toggle', 'Sign-in'), S('auth.google', 'FALSE', 'toggle', 'Sign-in'),
+        S('contact.channels', 'whatsapp,viber,email', 'text', 'Contact'), S('contact.requireEmail', 'FALSE', 'toggle', 'Contact')
+      ],
+      Guests: [
+        { GuestId: 'G001', Name: 'Hari Sharma', NameNe: 'हरि शर्मा', Family: 'Sharma', Side: 'Bride', Relation: 'Uncle', RelationNe: 'काका', Groups: 'All,Family,Bride', Phone: '+977 9800000001', Email: 'hari@example.com', DOB: '1968-04-02', AdmitCount: 4, AttendingCount: 3, Status: 'Attending', Meal: 'Veg', Registered: 'TRUE', RegisteredAt: ago(5000), CheckedIn: 'FALSE', RelationTo: "Bride's family", RelationType: 'Family', ContactPref: 'whatsapp', VenueId: 'V1', Tags: 'VIP', InviteCode: 'DEMO01', AccommodationEligible: 'TRUE', InviteOpened: 'TRUE', Table: '3' },
+        { GuestId: 'G002', Name: 'Gita Thapa', NameNe: 'गीता थापा', Family: 'Thapa', Side: 'Groom', Relation: 'Aunt', RelationNe: 'फुपू', Groups: 'All,Family,Groom', Phone: '+977 9800000002', DOB: '1975-09-12', AdmitCount: 2, AttendingCount: 2, Status: 'Attending', Meal: 'Non-veg', Registered: 'TRUE', RegisteredAt: ago(3000), CheckedIn: 'TRUE', RelationTo: "Groom's family", RelationType: 'Family', InviteCode: 'DEMO02', InviteOpened: 'TRUE', Table: '5' },
+        { GuestId: 'G003', Name: 'Anil Karki', NameNe: 'अनिल कार्की', Family: 'Karki', Side: 'Groom', Relation: 'College friend', Groups: 'All,Friends,Groom', Phone: '+1 612 555 0103', Email: 'anil@example.com', DOB: '1996-01-20', AdmitCount: 1, AttendingCount: 1, Status: 'Attending', Meal: 'Veg', Registered: 'TRUE', RelationTo: 'Groom', RelationType: 'Friend', InviteCode: 'DEMO03', InviteOpened: 'TRUE' },
+        { GuestId: 'G004', Name: 'Priya Rai', NameNe: 'प्रिया राई', Family: 'Rai', Side: 'Bride', Relation: 'Colleague', Groups: 'All,Friends,Bride', Phone: '+977 9800000004', DOB: '1994-07-07', AdmitCount: 2, AttendingCount: 0, Status: 'Maybe', Registered: 'TRUE', RelationTo: 'Bride', RelationType: 'Colleague', InviteCode: 'DEMO04', InviteOpened: 'TRUE' },
+        { GuestId: 'G005', Name: 'Bikash Gurung', NameNe: 'विकास गुरुङ', Family: 'Gurung', Side: 'Bride', Relation: 'Neighbor', Groups: 'All,Bride', Phone: '+977 9800000005', AdmitCount: 3, Status: 'Pending', Registered: 'FALSE', RelationTo: "Bride's family", RelationType: 'Neighbor', InviteCode: 'DEMO05' },
+        { GuestId: 'G006', Name: 'Sunita Adhikari', NameNe: 'सुनिता अधिकारी', Family: 'Adhikari', Side: 'Groom', Relation: 'Cousin', Groups: 'All,Family,Groom', Phone: '+977 9800000006', DOB: '2009-03-03', AdmitCount: 2, AttendingCount: 0, Status: 'Not attending', Registered: 'TRUE', RelationTo: "Groom's family", RelationType: 'Family', InviteCode: 'DEMO06' }
+      ],
+      Members: [
+        { MemberId: 'M001', GuestId: 'G001', Name: 'Hari Sharma', NameNe: 'हरि शर्मा', RelationTo: "Bride's family", RelationType: 'Family', Relation: 'Uncle', DOB: '1968-04-02', AgeVerified: 'TRUE', Attending: 'TRUE', IsPrimary: 'TRUE' },
+        { MemberId: 'M002', GuestId: 'G001', Name: 'Kamala Sharma', NameNe: 'कमला शर्मा', RelationTo: "Bride's family", RelationType: 'Family', Relation: 'Aunt', DOB: '1972-11-15', NonDrinker: 'TRUE', Attending: 'TRUE', IsPrimary: 'FALSE' },
+        { MemberId: 'M003', GuestId: 'G001', Name: 'Aarav Sharma', NameNe: 'आरव शर्मा', RelationTo: "Bride's family", RelationType: 'Family', Relation: 'Cousin', DOB: '2012-06-01', Attending: 'TRUE', IsPrimary: 'FALSE' },
+        { MemberId: 'M004', GuestId: 'G002', Name: 'Gita Thapa', NameNe: 'गीता थापा', RelationTo: "Groom's family", RelationType: 'Family', Relation: 'Aunt', DOB: '1975-09-12', Attending: 'TRUE', IsPrimary: 'TRUE', CheckedIn: 'TRUE' },
+        { MemberId: 'M005', GuestId: 'G002', Name: 'Ramesh Thapa', NameNe: 'रमेश थापा', RelationTo: "Groom's family", RelationType: 'Family', Relation: 'Uncle', DOB: '1970-02-20', AgeVerified: 'TRUE', Attending: 'TRUE', IsPrimary: 'FALSE', CheckedIn: 'TRUE' },
+        { MemberId: 'M006', GuestId: 'G003', Name: 'Anil Karki', NameNe: 'अनिल कार्की', RelationTo: 'Groom', RelationType: 'Friend', Relation: 'College friend', DOB: '1996-01-20', Attending: 'TRUE', IsPrimary: 'TRUE' }
+      ],
+      Events: [
+        { EventId: 'E1', NameEn: 'Mehendi', NameNe: 'मेहेन्दी', DateTime: iso(27, 16), Venue: 'Sharma Niwas, Kathmandu', MapLink: '', DressCode: 'Green & yellow', Groups: 'All', Order: 1, Visible: 'TRUE' },
+        { EventId: 'E2', NameEn: 'Sangeet', NameNe: 'संगीत', DateTime: iso(28, 18), Venue: 'Hotel Yak & Yeti', DressCode: 'Festive', Groups: 'All', Order: 2, Visible: 'TRUE' },
+        { EventId: 'E3', NameEn: 'Wedding Ceremony', NameNe: 'विवाह', DateTime: iso(30, 10), Venue: 'Pashupati Garden', DressCode: 'Traditional', Groups: 'All', Order: 3, Visible: 'TRUE' },
+        { EventId: 'E4', NameEn: 'Reception', NameNe: 'रिसेप्सन', DateTime: iso(31, 18), Venue: 'Soaltee Ballroom', DressCode: 'Formal', Groups: 'All', Order: 4, Visible: 'TRUE', UnlockAt: iso(29, 9), RevealStyle: 'scratch' }
+      ],
+      EventRsvp: [
+        { GuestId: 'G001', EventId: 'E1', Response: 'Yes', Count: 3, Attended: 'TRUE', AttendedCount: 3 },
+        { GuestId: 'G001', EventId: 'E3', Response: 'Yes', Count: 3 },
+        { GuestId: 'G002', EventId: 'E2', Response: 'Yes', Count: 2, Attended: 'TRUE', AttendedCount: 2 },
+        { GuestId: 'G002', EventId: 'E3', Response: 'Yes', Count: 2 },
+        { GuestId: 'G003', EventId: 'E3', Response: 'Yes', Count: 1 },
+        { GuestId: 'G004', EventId: 'E3', Response: 'Maybe', Count: 2 },
+        { GuestId: 'G006', EventId: 'E3', Response: 'No', Count: 0 }
+      ],
+      Admins: [
+        { Email: 'owner@example.com', Name: 'Demo Owner', Role: 'owner', Passcode: '••••mo', Active: 'TRUE', AddedAt: ago(9000), LastSeen: ago(2) },
+        { Email: 'helper@example.com', Name: 'Cousin Helper', Role: 'helper', Passcode: '••••42', Active: 'TRUE', AddedAt: ago(4000), LastSeen: ago(300) }
+      ],
+      ThankYous: [{ ThankId: 'T1', GuestId: 'G002', GiftId: 'GF2', Name: 'Gita Thapa', Channel: 'whatsapp', To: '+977 9800000002', Message: 'Thank you!', SentBy: 'Demo Owner', SentAt: ago(600) }],
+      Rooms: [
+        { RoomId: 'R1', Name: 'Room 101', Location: 'Hotel Yak & Yeti', Capacity: 3, CheckIn: iso(27, 14), CheckOut: iso(32, 11) },
+        { RoomId: 'R2', Name: 'Room 102', Location: 'Hotel Yak & Yeti', Capacity: 2, CheckIn: iso(27, 14), CheckOut: iso(32, 11) }
+      ],
+      Accommodation: [{ RequestId: 'A1', GuestId: 'G001', Nights: 3, People: 3, Needs: 'Ground floor please', Status: 'Assigned', RoomId: 'R1', UpdatedAt: ago(800) }],
+      Media: [
+        { MediaId: 'MD1', GuestId: 'G001', MemberId: 'M001', Name: 'Hari Sharma', Side: 'Bride', EventId: 'E1', DriveFileId: 'demo1', Type: 'photo', FileName: 'mehendi.jpg', Status: 'Approved', Timestamp: ago(120), SizeBytes: 2400000, Category: 'Candid', Thumb: pic('wed1') },
+        { MediaId: 'MD2', GuestId: 'G002', MemberId: 'M004', Name: 'Gita Thapa', Side: 'Groom', EventId: 'E2', DriveFileId: 'demo2', Type: 'photo', FileName: 'sangeet.jpg', Status: 'Approved', Timestamp: ago(90), SizeBytes: 3100000, Category: 'Candid', Starred: 'TRUE', Thumb: pic('wed2') },
+        { MediaId: 'MD3', GuestId: 'G003', MemberId: 'M006', Name: 'Anil Karki', Side: 'Groom', EventId: 'E2', DriveFileId: 'demo3', Type: 'video', FileName: 'dance.mp4', Status: 'Approved', Timestamp: ago(60), SizeBytes: 48000000, AudioFlag: 'distorted', ClipPct: 62, Category: 'BTS', Thumb: pic('wed3') },
+        { MediaId: 'MD4', GuestId: 'G001', MemberId: 'M002', Name: 'Kamala Sharma', Side: 'Bride', EventId: 'E1', DriveFileId: 'demo4', Type: 'video', FileName: 'blessing.mp4', Status: 'Approved', Timestamp: ago(40), SizeBytes: 21000000, AudioFlag: 'ok', Category: 'Video Guestbook / Blessing', Transcript: 'May you both be happy forever...', Summary: 'Aunt blessing the couple', Thumb: pic('wed4') },
+        { MediaId: 'MD5', GuestId: '', Name: 'Venue visitor', Side: '', EventId: 'E2', DriveFileId: 'demo5', Type: 'photo', FileName: 'stage.jpg', Status: 'Pending', Timestamp: ago(10), SizeBytes: 1900000, Thumb: pic('wed5') },
+        { MediaId: 'MD6', GuestId: 'G002', Name: 'Ramesh Thapa', Side: 'Groom', EventId: 'E1', DriveFileId: 'demo6', Type: 'photo', FileName: 'henna.jpg', Status: 'Approved', Timestamp: ago(5), SizeBytes: 2000000, Thumb: pic('wed6') }
+      ],
+      Whispers: [
+        { WhisperId: 'W1', GuestId: 'G003', Name: 'Anil Karki', Side: 'Groom', Text: 'Ram cried during the dance rehearsal 😂', Timestamp: ago(200), Status: 'New' },
+        { WhisperId: 'W2', GuestId: '', Name: 'Anonymous visitor', Text: 'Best wedding ever!', Timestamp: ago(30), Status: 'New' }
+      ],
+      Games: [
+        { GameId: 'GM1', Type: 'quiz', TitleEn: 'How did they meet?', TitleNe: 'उनीहरू कसरी भेटे?', QuestionEn: 'Where did Sita and Ram first meet?', QuestionNe: 'सीता र राम पहिलो पटक कहाँ भेटे?', OptionsEn: 'College|Temple|Wedding|Online', OptionsNe: 'कलेज|मन्दिर|विवाह|अनलाइन', Answer: 0, Points: 10, Groups: 'All', Active: 'TRUE', Order: 1 },
+        { GameId: 'GM2', Type: 'quiz', TitleEn: 'Favourite food', TitleNe: 'मनपर्ने खाना', QuestionEn: "What is Ram's favourite food?", QuestionNe: 'रामको मनपर्ने खाना के हो?', OptionsEn: 'Momo|Dal bhat|Pizza|Sel roti', OptionsNe: 'मःम|दाल भात|पिज्जा|सेल रोटी', Answer: 0, Points: 10, Groups: 'All', Active: 'TRUE', Order: 2 },
+        { GameId: 'GM3', Type: 'photo', TitleEn: 'Selfie challenge', TitleNe: 'सेल्फी चुनौती', QuestionEn: 'Take a selfie with someone from the other side', QuestionNe: 'अर्को पक्षको कोहीसँग सेल्फी लिनुहोस्', OptionsEn: '', OptionsNe: '', Answer: 0, Points: 20, Groups: 'All', Active: 'TRUE', Order: 3 }
+      ],
+      Scores: [
+        { GuestId: 'G002', MemberId: 'M004', Name: 'Gita Thapa', Side: 'Groom', GameId: 'GM1', Correct: 'TRUE', Points: 10, Timestamp: ago(400) },
+        { GuestId: 'G003', MemberId: 'M006', Name: 'Anil Karki', Side: 'Groom', GameId: 'GM1', Correct: 'TRUE', Points: 10, Timestamp: ago(300) },
+        { GuestId: 'G001', MemberId: 'M002', Name: 'Kamala Sharma', Side: 'Bride', GameId: 'GM2', Correct: 'TRUE', Points: 10, Timestamp: ago(200) }
+      ],
+      Live: [{ Timestamp: ago(15), MessageEn: 'Dinner is now being served in the main hall 🍽️', MessageNe: 'मुख्य हलमा खाना सुरु भयो 🍽️', Active: 'TRUE' }],
+      Rituals: [
+        ['🪔', 'Ganesh Puja', 'गणेश पूजा', 'Every auspicious beginning starts with Lord Ganesh, remover of obstacles.', 'हरेक शुभ कार्य गणेश पूजाबाट सुरु हुन्छ।', 'done'],
+        ['🎊', 'Janti Swagat', 'जन्ती स्वागत', "The groom's procession arrives with Naumati Baja and is welcomed by the bride's family.", 'नौमती बाजासहित जन्ती आइपुग्छन्।', 'done'],
+        ['🌿', 'Dubo ko Mala', 'दुबोको माला', 'Garlands of dubo grass, which never dies, wish their love an ever-growing life.', 'दुबोको माला साटासाट गरिन्छ।', 'now'],
+        ['🙏', 'Kanyadaan', 'कन्यादान', "The bride's parents place her hand in the groom's.", 'छोरीको हात बेहुलाको हातमा सुम्पिन्छ।', 'upcoming'],
+        ['🔥', 'Laja Homa', 'लाजा होम', 'Puffed rice offered into the sacred fire for prosperity.', 'पवित्र अग्निमा लावा चढाइन्छ।', 'upcoming'],
+        ['👣', 'Saptapadi', 'सप्तपदी', 'Seven steps around the fire, each a lifelong vow.', 'अग्निको वरिपरि सात फेरा।', 'upcoming'],
+        ['❤️', 'Sindoor-Pote', 'सिन्दूर र पोते', 'Vermilion and the green pote - sacred signs of marriage.', 'सिन्दूर र पोते लगाइन्छ।', 'upcoming']
+      ].map((r, i) => ({ RitualId: 'RT' + (i + 1), EventId: 'E3', Order: i + 1, Icon: r[0], NameEn: r[1], NameNe: r[2], MeaningEn: r[3], MeaningNe: r[4], Status: r[5], StartedAt: r[5] === 'upcoming' ? '' : ago(30 - i * 5), Visible: 'TRUE' })),
+      MomProfile: [
+        { Key: 'name', Value: 'Laxmi Devi' }, { Key: 'nameNe', Value: 'लक्ष्मी देवी' }, { Key: 'years', Value: '1965 - 2020' },
+        { Key: 'quote', Value: 'Love is the only thing that grows when you give it away.' }, { Key: 'photoId', Value: '' }
+      ],
+      MomMemories: [
+        { MemoryId: 'MM1', GuestId: 'G001', Name: 'Hari Sharma', Relation: 'Brother', Type: 'text', Text: 'She always made the best sel roti at Tihar.', Status: 'Approved', IsPrivate: 'FALSE', Timestamp: ago(3000) },
+        { MemoryId: 'MM2', GuestId: 'G004', Name: 'Priya Rai', Relation: 'Friend', Type: 'text', Text: 'Her laugh filled every room.', Status: 'Pending', IsPrivate: 'FALSE', Timestamp: ago(100) }
+      ],
+      MomDiyas: [
+        { GuestId: 'G001', Name: 'Hari Sharma', Blessing: 'Always in our hearts', Timestamp: ago(3000) },
+        { GuestId: 'G002', Name: 'Gita Thapa', Blessing: 'Om Shanti', Timestamp: ago(500) }
+      ],
+      Venues: [
+        { VenueId: 'V1', NameEn: 'Kathmandu (main)', NameNe: 'काठमाडौं', Address: 'Pashupati Garden, Kathmandu', Country: 'Nepal', MapLink: '', Notes: 'Main ceremony', Selectable: 'TRUE', Order: 1 },
+        { VenueId: 'V2', NameEn: 'Minneapolis reception', NameNe: 'मिनियापोलिस', Address: 'Downtown Minneapolis, MN', Country: 'USA', MapLink: '', Notes: 'For US guests', Selectable: 'TRUE', Order: 2 }
+      ],
+      Vibe: [
+        { PersonId: 'P1', Side: 'Bride', Label: 'Sharma family', Circle: 'Family', Attendance: 12, AgeBand: '36-60', EduProf: 'Best', Fun: 4, Confirmed: 'TRUE' },
+        { PersonId: 'P2', Side: 'Groom', Label: 'College gang', Circle: 'Friends', Attendance: 8, AgeBand: '18-35', EduProf: 'Average', Fun: 5, Confirmed: 'FALSE' }
+      ],
+      Traditions: [{ TraditionId: 'TR1', Name: 'Joota Chupai', Origin: 'India / Nepal', Description: "Bride's sisters hide the groom's shoes.", OurVersion: 'Bride vs groom game in the app', Phase: 'Ceremony', Include: 'TRUE', VibeBoost: 2 }],
+      Scenarios: [{ ScenarioId: 'SC1', Name: 'Case 1 - Nepal, December', Region: 'Nepal', Window: 'Dec 20 - Jan 3', Weeks: 2, Budget: 7000, Currency: 'USD', Chosen: 'TRUE' }],
+      Invites: [
+        { InviteId: 'I1', GuestId: 'G001', Name: 'Hari Sharma', NameNe: 'हरि शर्मा', Lang: 'mix', Status: 'Approved', RequestedAt: ago(4000), ApprovedAt: ago(3900) },
+        { InviteId: 'I2', GuestId: 'G003', Name: 'Anil Karki', Lang: 'en', Status: 'Requested', RequestedAt: ago(50) }
+      ],
+      Proofs: [{ ProofId: 'PF1', GuestId: 'G003', MemberId: 'M006', Name: 'Anil Karki', Side: 'Groom', GameId: 'GM3', DriveFileId: 'demo3', Status: 'Pending', Points: 20, Timestamp: ago(25) }],
+      Gifts: [
+        { GiftId: 'GF1', GuestId: 'G001', Name: 'Hari Sharma', Side: 'Bride', Method: 'Cash envelope', Amount: 10001, Currency: 'NPR', Note: 'Envelope #12', Status: 'Received', Timestamp: ago(700), Relation: 'Uncle', Source: 'cash', EventId: 'E1', EnteredBy: 'Demo Owner' },
+        { GiftId: 'GF2', GuestId: 'G002', Name: 'Gita Thapa', Side: 'Groom', Method: 'eSewa', Amount: 5001, Currency: 'NPR', Status: 'Thanked', Timestamp: ago(900), ThankedAt: ago(600), ThankedVia: 'whatsapp', Relation: 'Aunt', EventId: 'E2' },
+        { GiftId: 'GF3', GuestId: 'G003', Name: 'Anil Karki', Side: 'Groom', Method: 'Zelle', Amount: 101, Currency: 'USD', Note: 'Congrats bro!', Status: 'Received', Timestamp: ago(300), Relation: 'Friend' },
+        { GiftId: 'GF4', GuestId: '', Name: 'Mr. & Mrs. Joshi', Side: 'Bride', Method: 'Cash envelope', Amount: 2100, Currency: 'NPR', Status: 'Received', Timestamp: ago(100), Source: 'cash', EventId: 'E1', EnteredBy: 'Cousin Helper' }
+      ],
+      AuditLog: []
+    };
+  }
+
+  const KEY = 'demoDB';
+  let db;
+  try { db = window.__DEMO_SEED__ || JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { db = null; }
+  window.__DEMO_SEED__ = null;
+  if (!db || !db.Settings) db = seed();
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { } };
+  save();
+
+  // Sign the demo guest in automatically so guest pages show personal data.
+  if (!localStorage.getItem('guestId')) { localStorage.setItem('guestId', 'G001'); localStorage.setItem('side', 'Bride'); }
+
+  const T = n => db[n] || (db[n] = []);
+  const bool = v => v === true || String(v).toUpperCase() === 'TRUE';
+  const nowS = () => new Date().toISOString();
+  const id = () => Math.random().toString(36).slice(2, 10).toUpperCase();
+  const settings = () => { const o = {}; T('Settings').forEach(r => o[r.Key] = r.Value); return o; };
+  const by = (n, k, v) => T(n).filter(r => r[k] === v)[0];
+  const update = (n, k, v, patch) => { const r = by(n, k, v); if (r) Object.assign(r, patch); save(); return true; };
+  const upsert = (n, k, row) => { const r = by(n, k, row[k]); if (r) Object.assign(r, row); else T(n).push(row); save(); return row; };
+  const del = (n, k, v) => { db[n] = T(n).filter(r => r[k] !== v); save(); return true; };
+  const age = dob => { if (!dob) return ''; const d = new Date(dob); return isNaN(d) ? '' : Math.floor((Date.now() - d) / 31557600000); };
+  const band = (dob, nd, verified) => { const a = age(dob), legal = Number(settings()['drink.legalAge']) || 18; if (bool(nd)) return 'blue'; if (a === '' || a < legal) return 'red'; return bool(verified) ? 'green' : 'yellow'; };
+  const sideOf = rt => /bride/i.test(rt) ? 'Bride' : /groom/i.test(rt) ? 'Groom' : 'Both';
+  const withG = g => Object.assign({}, g, { Age: age(g.DOB), Band: band(g.DOB, g.NonDrinker, g.AgeVerified) });
+  const withM = m => Object.assign({}, m, { Age: age(m.DOB), Band: band(m.DOB, m.NonDrinker, m.AgeVerified) });
+  const groupsOf = g => { const s = String((g && g.Side) || '').toLowerCase(), out = ['all']; if (s === 'both') out.push('bride', 'groom', 'both'); else if (s) out.push(s); String((g && g.Groups) || '').split(',').forEach(x => { x = x.trim().toLowerCase(); if (x) out.push(x); }); return out; };
+  const matches = (t, gs) => { const l = String(t || 'All').split(',').map(x => x.trim().toLowerCase()).filter(String); return !l.length || l.indexOf('all') >= 0 || l.some(x => gs.indexOf(x) >= 0); };
+  const members = gid => T('Members').filter(m => m.GuestId === gid);
+  const guest = gid => { const g = by('Guests', 'GuestId', gid); if (!g) throw new Error('Invitation not found'); return g; };
+  const approved = () => T('Media').filter(m => m.Status === 'Approved').slice().reverse();
+  const pubMedia = m => ({ id: m.MediaId, fileId: m.DriveFileId, type: m.Type, name: bool(m.Anon) ? '' : m.Name, anon: bool(m.Anon), side: m.Side, eventId: m.EventId, at: m.Timestamp, thumb: m.Thumb });
+  const live = () => { const l = T('Live').filter(r => bool(r.Active)).pop(); return l ? { en: l.MessageEn, ne: l.MessageNe, at: l.Timestamp } : null; };
+  const events = g => T('Events').filter(e => bool(e.Visible) && (!g || matches(e.Groups, groupsOf(g)))).sort(
+    e.UnlockAt && new Date(e.UnlockAt) > new Date() ? { EventId: e.EventId, locked: true, UnlockAt: e.UnlockAt, RevealStyle: e.RevealStyle } : Object.assign({}, e, { locked: false }));
+  const venues = () => T('Venues').map(v => Object.assign({}, v, { Selectable: bool(v.Selectable), Map: v.MapLink || 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(v.Address) }));
+
+  function leaderboard() {
+    const p = {}, add = (k, n, s, pts) => { p[k] = p[k] || { key: k, name: n, side: s, points: 0 }; p[k].points += pts; };
+    T('Scores').forEach(s => add(s.GuestId + '|' + s.MemberId, s.Name, s.Side, Number(s.Points) || 0));
+    approved().forEach(m => add((m.GuestId || 'v') + '|' + (m.MemberId || m.Name), m.Name, m.Side, Number(settings()['points.upload']) || 0));
+    const all = Object.values(p).sort((a, b) => b.points - a.points), teams = { Bride: 0, Groom: 0 };
+    all.forEach(x => { if (teams[x.side] !== undefined) teams[x.side] += x.points; });
+    return { teams: teams, top: all.slice(0, 10).map(x => ({ name: x.name, side: x.side, points: x.points })), all: all };
+  }
+
+  function frozen() {
+    const s = settings(), t = Date.now(), u = new Date(s['freeze.until']);
+    let on = String(s['freeze.on']).toUpperCase() === 'TRUE' && (!s['freeze.until'] || isNaN(u) || u.getTime() > t), until = on ? s['freeze.until'] || '' : '';
+    if (!on) String(s['freeze.windows'] || '').split(';').forEach(w => {
+      const p = w.split('>'), a = new Date((p[0] || '').trim()), b = new Date((p[1] || '').trim());
+      if (!on && p.length === 2 && !isNaN(a) && !isNaN(b) && t >= a.getTime() && t < b.getTime()) { on = true; until = b.toISOString(); }
+    });
+    return { on: on, until: until, messageEn: on ? s['freeze.messageEn'] || 'Phones down! The Kanyadaan is starting. We\'ll reopen the games at the reception!' : '', messageNe: on ? s['freeze.messageNe'] || '' : '' };
+  }
+
+  function config() {
+    const s = settings(), c = {};
+    Object.keys(s).forEach(k => { if (/^(feature|lang|couple|wedding|theme|registration|accommodation|drink|app|media|engage|points|auth|contact|freeze)\./.test(k)) c[k] = s[k]; });
+    return Object.assign(c, { closed: false, freeze: frozen(), live: live(),
+      relationTypes: ['Family', 'Friend', 'Colleague', 'Neighbor', 'Other'], venues: venues(), eventDates: T('Events').map(e => String(e.DateTime).slice(0, 10)), demo: true });
+  }
+
+  function stats() {
+    const gs = T('Guests'), ms = T('Members').map(withM), sum = (a, f) => a.reduce((t, x) => t + (Number(f(x)) || 0), 0);
+    const att = gs.filter(g => g.Status === 'Attending'), meals = {}, bands = { green: 0, yellow: 0, red: 0, blue: 0 }, rel = {};
+    att.forEach(g => { const m = g.Meal || 'Unspecified'; meals[m] = (meals[m] || 0) + (Number(g.AttendingCount) || 0); });
+    const going = ms.filter(m => bool(m.Attending));
+    going.forEach(m => { bands[m.Band]++; rel[m.RelationTo || 'Unspecified'] = (rel[m.RelationTo || 'Unspecified'] || 0) + 1; });
+    const media = T('Media'), acc = T('Accommodation'), players = {};
+    T('Scores').forEach(s => players[s.GuestId + s.MemberId] = 1);
+    return {
+      updatedAt: nowS(), invited: gs.length, invitedPeople: sum(gs, g => g.AdmitCount), registered: gs.filter(g => bool(g.Registered)).length,
+      attendingGuests: att.length, attendingPeople: sum(att, g => g.AttendingCount), notAttending: gs.filter(g => g.Status === 'Not attending').length,
+      maybe: gs.filter(g => g.Status === 'Maybe').length, pending: gs.filter(g => !bool(g.Registered)).length,
+      brideSide: going.filter(m => sideOf(m.RelationTo) === 'Bride').length, groomSide: going.filter(m => sideOf(m.RelationTo) === 'Groom').length,
+      checkedIn: ms.filter(m => bool(m.CheckedIn)).length, meals: meals, bands: bands, relations: rel,
+      perEvent: T('Events').map(e => {
+        const r = T('EventRsvp').filter(x => x.EventId === e.EventId), y = r.filter(x => x.Response === 'Yes'), bySide = {};
+        y.forEach(x => { const g = by('Guests', 'GuestId', x.GuestId) || {}; bySide[g.Side || 'Unspecified'] = (bySide[g.Side || 'Unspecified'] || 0) + (Number(x.Count) || 0); });
+        return { eventId: e.EventId, nameEn: e.NameEn, nameNe: e.NameNe, dateTime: e.DateTime, yes: sum(y, x => x.Count), households: y.length,
+          maybe: sum(r.filter(x => x.Response === 'Maybe'), x => x.Count), no: r.filter(x => x.Response === 'No').length,
+          noReply: gs.length - r.length, bySide: bySide, byTag: {}, attended: sum(r.filter(x => bool(x.Attended)), x => x.AttendedCount) };
+      }),
+      media: { photos: media.filter(m => m.Type === 'photo' && m.Status === 'Approved').length, videos: media.filter(m => m.Type === 'video' && m.Status === 'Approved').length, pending: media.filter(m => m.Status === 'Pending').length },
+      players: Object.keys(players).length,
+      accommodation: { eligible: gs.filter(g => bool(g.AccommodationEligible)).length, requested: acc.filter(a => a.Status === 'Requested').length,
+        assigned: acc.filter(a => a.Status === 'Assigned').length, people: sum(acc, a => a.People), capacity: sum(T('Rooms'), r => r.Capacity) }
+    };
+  }
+
+  function analytics() {
+    const gs = T('Guests'), media = T('Media'), gifts = T('Gifts'), ages = { '0-12': 0, '13-17': 0, '18-35': 0, '36-60': 0, '60+': 0, unknown: 0 };
+    T('Members').forEach(m => { const a = age(m.DOB); if (a === '') ages.unknown++; else if (a < 13) ages['0-12']++; else if (a < 18) ages['13-17']++; else if (a <= 35) ages['18-35']++; else if (a <= 60) ages['36-60']++; else ages['60+']++; });
+    const byEv = {}, up = {}, tot = {};
+    media.forEach(m => { const e = (by('Events', 'EventId', m.EventId) || {}).NameEn || 'General'; byEv[e] = (byEv[e] || 0) + 1; up[m.Name] = (up[m.Name] || 0) + 1; });
+    gifts.forEach(g => tot[g.Currency || 'NPR'] = (tot[g.Currency || 'NPR'] || 0) + (Number(g.Amount) || 0));
+    const vn = {}; gs.forEach(g => { if (g.VenueId) { const v = (by('Venues', 'VenueId', g.VenueId) || {}).NameEn || g.VenueId; vn[v] = (vn[v] || 0) + 1; } });
+    const hours = Array(24).fill(0).map((_, h) => Math.round(8 + 20 * Math.sin((h - 6) / 24 * Math.PI) ** 2));
+    return {
+      notRegistered: gs.filter(g => !bool(g.Registered)).map(g => ({ name: g.Name, phone: g.Phone, side: g.Side })),
+      venues: Object.keys(vn).map(k => ({ venue: k, guests: vn[k] })), ages: ages,
+      accommodation: { requested: T('Accommodation').filter(a => a.Status === 'Requested').length, unassigned: T('Accommodation').filter(a => a.Status !== 'Assigned').length },
+      invites: { requested: T('Invites').filter(i => i.Status === 'Requested').length, approved: T('Invites').filter(i => i.Status === 'Approved').length },
+      proofsPending: T('Proofs').filter(p => p.Status === 'Pending').length,
+      media: { total: media.length, videos: media.filter(m => m.Type === 'video').length, sizeGB: Math.round(media.reduce((t, m) => t + (Number(m.SizeBytes) || 0), 0) / 1073741824 * 100) / 100,
+        byEvent: Object.keys(byEv).map(k => ({ event: k, count: byEv[k] })), topUploaders: Object.keys(up).map(k => ({ name: k, count: up[k] })).sort((a, b) => b.count - a.count) },
+      gifts: { count: gifts.length, notThanked: gifts.filter(g => !g.ThankedAt).length, totals: tot },
+      activity: { today: 214, week: 1380, activeToday: 37, activeWeek: 92, byHour: hours, devices: { phone: 81, desktop: 11 },
+        topPages: [{ k: 'index.html', n: 520 }, { k: 'photos.html', n: 310 }, { k: 'ceremony.html', n: 190 }, { k: 'games.html', n: 160 }, { k: 'register.html', n: 120 }],
+        topActions: [{ k: 'view', n: 900 }, { k: 'upload', n: 140 }, { k: 'answer', n: 95 }, { k: 'rsvp', n: 60 }] }
+    };
+  }
+
+  function thankQueue() {
+    const s = settings(), couple = s['couple.brideEn'] + ' & ' + s['couple.groomEn'], ev = {}, out = {};
+    T('Events').forEach(e => ev[e.EventId] = e.NameEn);
+    const mk = (k, gid, name, g) => out[k] = out[k] || { key: k, guestId: gid, name: name, relation: g.Relation || '', phone: g.Phone || '', email: g.Email || '', gifts: [], events: [], giftIds: [] };
+    T('Gifts').forEach(x => {
+      const g = by('Guests', 'GuestId', x.GuestId) || {}, o = mk(x.GuestId || 'n:' + x.Name.toLowerCase(), x.GuestId, x.Name, Object.assign({}, g, { Relation: x.Relation || g.Relation }));
+      o.gifts.push(/cash|envelope/i.test(x.Method) ? 'kind envelope' : 'gift via ' + x.Method); o.giftIds.push(x.GiftId);
+      if (ev[x.EventId] && o.events.indexOf(ev[x.EventId]) < 0) o.events.push(ev[x.EventId]); if (x.ThankedAt) o.thankedAt = x.ThankedAt;
+    });
+    T('EventRsvp').filter(r => bool(r.Attended) || r.Response === 'Yes').forEach(r => {
+      const g = by('Guests', 'GuestId', r.GuestId); if (!g) return; const o = mk(r.GuestId, r.GuestId, g.Name, g);
+      if (ev[r.EventId] && o.events.indexOf(ev[r.EventId]) < 0) o.events.push(ev[r.EventId]);
+    });
+    return Object.values(out).map(o => {
+      const gift = o.gifts.length ? Array.from(new Set(o.gifts)).join(' and ') : 'presence', event = o.events.join(', ') || 'our wedding';
+      const fill = t => String(t || '').replace(/\{name\}/g, o.name).replace(/\{gift\}/g, gift).replace(/\{event\}/g, event).replace(/\{relation\}/g, o.relation).replace(/\{couple\}/g, couple);
+      const last = T('ThankYous').filter(t => (o.guestId && t.GuestId === o.guestId) || t.Name === o.name).pop();
+      return Object.assign(o, { message: fill(o.gifts.length ? s['thanks.tplGift'] : s['thanks.tplPresence']), messageNe: fill(s['thanks.tplNe']),
+        sentAt: last ? last.SentAt : o.thankedAt || '', sentVia: last ? last.Channel : '' });
+    });
+  }
+
+  function rituals() {
+    return T('Rituals').filter(r => bool(r.Visible)).sort((a, b) => a.Order - b.Order).map(r => ({ id: r.RitualId, eventId: r.EventId, icon: r.Icon, nameEn: r.NameEn, nameNe: r.NameNe, meaningEn: r.MeaningEn, meaningNe: r.MeaningNe, status: r.Status || 'upcoming', at: r.StartedAt }));
+  }
+
+  const A = {
+    getConfig: config,
+    getHome: d => {
+      ev = d.guestId ? events(by('Guests', 'GuestId', d.guestId)) : []
+      const next = ev.filter(e => !e.locked && new Date(e.DateTime) > new Date()).sort((a, b) => new Date(a.DateTime) - new Date(b.DateTime))[0] || null;
+      const me = lb.all.filter(x => x.key.indexOf(d.guestId + '|') === 0).reduce((t, x) => t + x.points, 0);
+      return { nextEvent: next, upcomingCount: ev.filter(e => !e.locked).length, lockedCount: ev.filter(e => e.locked).length, media: approved().slice(0, 9).map(pubMedia),
+        mediaCount: approved().length, diyaCount: T('MomDiyas').length, teams: lb.teams, top: lb.top.slice(0, 5), myPoints: me, prompt: { en: en[0], ne: ne[0] }, live: live() };
+    },
+    getGuest: d => {
+      const g = guest(d.guestId);
+      return { guest: withG(g), members: members(g.GuestId), memberId: d.memberId || '', groups: String(g.Groups || 'All').split(','), events: events(g),
+        rsvps: T('EventRsvp').filter(r => r.GuestId === g.GuestId), accommodation: bool(g.AccommodationEligible) ? { eligible: true, request: by('Accommodation', 'GuestId', g.GuestId) || null } : { eligible: false } };
+    },
+    getPass: d => {
+      const g = withG(guest(d.guestId)), req = by('Accommodation', 'GuestId', g.GuestId), room = req && by('Rooms', 'RoomId', req.RoomId);
+      return { guestId: g.GuestId, name: g.Name, nameNe: g.NameNe, side: g.Side, relation: g.Relation, relationNe: g.RelationNe, table: g.Table, status: g.Status,
+        registered: bool(g.Registered), attendingCount: g.AttendingCount, band: g.Band,
+        members: members(g.GuestId).map(withM).map(m => ({ memberId: m.MemberId, name: m.Name, nameNe: m.NameNe, relationTo: m.RelationTo, relation: m.Relation, relationNe: m.RelationNe, side: sideOf(m.RelationTo), attending: bool(m.Attending), isPrimary: bool(m.IsPrimary), band: m.Band })),
+        room: room ? { name: room.Name, location: room.Location, checkIn: room.CheckIn, checkOut: room.CheckOut } : null, accommodationStatus: req ? req.Status : null };
+    },
+    getLive: live,
+    getRituals: rituals,
+    getGallery: d => approved().filter(m => (!d.eventId || m.EventId === d.eventId) && (!d.side || m.Side === d.side) && (!d.mine || m.GuestId === d.guestId))
+      .map(m => Object.assign(pubMedia(m), { mine: !!d.guestId && m.GuestId === d.guestId })),
+    deleteMedia: d => update('Media', 'MediaId', d.mediaId, { Status: 'Deleted' }),
+    startUpload: d => { if (frozen().on) throw new Error('Phones down for now - games and uploads reopen soon');
+      const mime = String(d.mimeType || '').toLowerCase(), vid = /^video\//.test(mime), s = settings();
+      if (!/^(image|video)\//.test(mime)) throw new Error('Only photos and videos');
+      const lim = vid ? (Number(s['media.maxVideoMB']) || 250) : (Number(s['media.maxSizeMB']) || 500);
+      if (!Number(d.size) || Number(d.size) > lim * 1048576) throw new Error('File too large (max ' + lim + ' MB for ' + (vid ? 'videos' : 'photos') + ')');
+      const t = 'UP' + id(); T('Uploads').push(Object.assign({ Token: t }, d)); save(); return { token: t, uploadUrl: 'demo://upload/' + t }; },
+    finishUpload: d => {
+      const u = by('Uploads', 'Token', d.token); if (!u) throw new Error('Upload session expired');
+      const g = by('Guests', 'GuestId', u.guestId) || {}, pend = bool(settings()['media.moderation']);
+      const row = { MediaId: 'MD' + id(), GuestId: u.guestId || '', MemberId: u.memberId || '', Name: u.name || g.Name || 'Guest', Side: g.Side || '', EventId: u.eventId || '', DriveFileId: d.fileId || 'demo' + id(), Type: /^video\//.test(u.mimeType) ? 'video' : 'photo', FileName: u.fileName, Status: pend ? 'Pending' : 'Approved', Timestamp: nowS(), SizeBytes: u.size || 0, Category: u.category || '', Anon: u.anon ? 'TRUE' : '', Thumb: d.thumb || '' };
+      T('Media').push(row); db.Uploads = T('Uploads').filter(x => x.Token !== d.token); save();
+      return { pending: pend, media: pubMedia(row) };
+    },
+    getGames: d => {
+      const memberId = d.memberId || '', done = {};
+      T('Scores').filter(s => s.GuestId === d.guestId && s.MemberId === memberId).forEach(s => done[s.GameId] = s);
+      const lb = leaderboard();
+      return { games: T('Games').filter(g => bool(g.Active)).sort((a, b) => a.Order - b.Order).map(g => ({ gameId: g.GameId, type: g.Type, titleEn: g.TitleEn, titleNe: g.TitleNe,
+        questionEn: g.QuestionEn, questionNe: g.QuestionNe, optionsEn: String(g.OptionsEn).split('|'), optionsNe: String(g.OptionsNe).split('|'), points: Number(g.Points),
+        answered: !!done[g.GameId], proof: null, correct: done[g.GameId] ? bool(done[g.GameId].Correct) : null, answer: done[g.GameId] ? Number(g.Answer) : null })),
+        groups: ['all'], leaderboard: { teams: lb.teams, top: lb.top } };
+    },
+    submitAnswer: d => {
+      if (frozen().on) throw new Error('Phones down for now - games and uploads reopen soon');
+      const g = by('Games', 'GameId', d.gameId);
+      if (!g || !bool(g.Active)) throw new Error('Game not available');
+      const gu = guest(d.guestId), mid = d.memberId || '';
+      if (T('Scores').some(s => s.GuestId === d.guestId && s.MemberId === mid && s.GameId === g.GameId)) throw new Error('Already answered');
+      const ok = String(Number(d.choice)) === String(Number(g.Answer));
+      T('Scores').push({ GuestId: d.guestId, MemberId: mid, Name: gu.Name, Side: gu.Side, GameId: g.GameId, Correct: ok ? 'TRUE' : 'FALSE', Points: ok ? g.Points : 0, Timestamp: nowS() }); save();
+      return { correct: ok, answer: Number(g.Answer), points: ok ? Number(g.Points) : 0 };
+    },
+    getLeaderboard: () => { const l = leaderboard(); return { teams: l.teams, top: l.top }; },
+    getMemorial: () => {
+      const p = {}; T('MomProfile').forEach(r => p[r.Key] = r.Value);
+      return { profile: p, memories: T('MomMemories').filter(m => m.Status === 'Approved' && !bool(m.IsPrivate)).map(m => ({ name: m.Name, relation: m.Relation, type: m.Type, text: m.Text, timestamp: m.Timestamp })).reverse(),
+        diyaCount: T('MomDiyas').length, blessings: T('MomDiyas').filter(x => x.Blessing).slice().reverse().map(x => ({ name: x.Name, blessing: x.Blessing })) };
+    },
+    lightDiya: d => { T('MomDiyas').push({ GuestId: d.guestId || '', Name: d.name || 'Guest', Blessing: d.blessing || '', Timestamp: nowS() }); save(); return { diyaCount: T('MomDiyas').length }; },
+    submitMemory: d => { T('MomMemories').push({ MemoryId: id(), GuestId: d.guestId || '', Name: d.name || 'Guest', Relation: d.relation || '', Type: 'text', Text: d.text, Status: 'Pending', IsPrivate: d.isPrivate ? 'TRUE' : 'FALSE', Timestamp: nowS() }); save(); return { pending: true }; },
+    signIn: d => {
+      const p = String(d.phone || '').replace(/\D/g, '').slice(-10);
+      if (!p) return { guestId: 'G001', members: members('G001'), registered: true };
+      const g = T('Guests').filter(x => String(x.Phone || '').replace(/\D/g, '').slice(-10) === p)[0];
+      if (!g) throw new Error('No invitation found for this phone number');
+      guard(g);
+      return { guestId: g.GuestId, members: members(g.GuestId), registered: bool(g.Registered) };
+    },
+    findPass: d => {
+      const p = String(d.phone || '').replace(/\D/g, '').slice(-10), w = String(d.name || '').trim().toLowerCase();
+      if (p.length < 7 || w.length < 2) throw new Error('Enter your phone number and family name');
+      const hit = g => (' ' + [g.Name, g.Family].concat(members(g.GuestId).map(m => m.Name)).join(' ').toLowerCase() + ' ').indexOf(' ' + w) >= 0;
+      const f = T('Guests').filter(g => String(g.Phone || '').replace(/\D/g, '').slice(-10) === p && hit(g));
+      if (f.length !== 1) throw new Error('No invitation matches. Please ask the family for your link.');
+      guard(f[0]);
+      return { guestId: f[0].GuestId, members: members(f[0].GuestId), registered: bool(f[0].Registered) };
+    },
+    resolveCode: d => { const c = String(d.code || '').toUpperCase(); const g = T('Guests').filter(x => x.InviteCode === c || x.GuestId === c)[0]; if (!g) throw new Error('Invitation code not found (try DEMO01)'); guard(g); return { guestId: g.GuestId }; },
+    register: d => {
+      const self = d.memberId ? by('Members', 'MemberId', d.memberId) : null;
+      if (self && self.GuestId === d.guestId && !bool(self.IsPrimary)) {
+        const f = d.form || {};
+        update('Members', 'MemberId', self.MemberId, { Name: f.Name || self.Name, DOB: f.DOB || self.DOB, NonDrinker: f.NonDrinker ? 'TRUE' : 'FALSE', Attending: f.Status === 'Attending' || f.Status === 'Maybe' ? 'TRUE' : 'FALSE', Meal: f.Meal || '', Allergies: f.Allergies || '' });
+        return { ok: true, memberOnly: true, members: members(d.guestId), primaryMemberId: self.MemberId };
+      }
+      update('Guests', 'GuestId', d.guestId, Object.assign({}, d.form || {}, { Registered: 'TRUE', RegisteredAt: nowS() })); return { ok: true };
+    },
+    requestAccommodation: d => upsert('Accommodation', 'RequestId', { RequestId: (by('Accommodation', 'GuestId', d.guestId) || {}).RequestId || id(), GuestId: d.guestId, Nights: d.Nights || d.nights, People: d.People || d.people, Needs: d.Needs || d.needs || '', Status: 'Requested', UpdatedAt: nowS() }),
+    markAttended: d => { (d.events || []).forEach(e => { const r = T('EventRsvp').filter(x => x.GuestId === d.guestId && x.EventId === e.EventId)[0]; const row = { GuestId: d.guestId, EventId: e.EventId, Attended: e.attended ? 'TRUE' : 'FALSE', AttendedCount: e.count, AttendedAt: nowS() }; if (r) Object.assign(r, row); else T('EventRsvp').push(row); }); save(); return true; },
+    chooseVenue: d => update('Guests', 'GuestId', d.guestId, { VenueId: d.venueId }),
+    searchPeople: d => { const q = String(d.q || '').toLowerCase(); if (q.length < 2) return []; return T('Members').filter(m => m.Name.toLowerCase().indexOf(q) >= 0).slice(0, 8).map(m => ({ name: m.Name, nameNe: m.NameNe, relationTo: m.RelationTo, relation: m.Relation, mine: m.GuestId === d.guestId, memberId: m.GuestId === d.guestId ? m.MemberId : '' })); },
+    checkName: () => ({ duplicate: false }),
+    getNudges: d => [
+      { en: 'Demo: finish your RSVP - it takes 1 minute', ne: 'आफ्नो उपस्थिति पुष्टि गर्नुहोस्', href: 'register.html', icon: '📝' },
+      { en: '2 game(s) waiting for you - help team Bride', ne: '२ खेल बाँकी छन्', href: 'games.html', icon: '🎯' },
+      { en: 'Follow the ceremony live with Pocket Pandit', ne: 'पकेट पण्डितसँग विधि हेर्नुहोस्', href: 'ceremony.html', icon: '🪔' }
+    ],
+    requestInvite: () => ({ ok: true, status: 'Requested' }),
+    getInvite: d => { const i = T('Invites').filter(x => x.GuestId === d.guestId).pop(); return i ? { status: i.Status, fileId: i.DriveFileId || '' } : null; },
+    submitProof: () => ({ ok: true }),
+    getGiftInfo: () => ({ on: true, currency: 'NPR', qrs: [{ id: 'demoqr1', label: 'eSewa (demo)' }, { id: 'demoqr2', label: 'Khalti (demo)' }] }),
+    sendWhisper: d => { T('Whispers').push({ WhisperId: id(), GuestId: d.guestId || '', Name: d.name || 'Guest', Text: d.text, Timestamp: nowS(), Status: 'New' }); save(); return { ok: true }; },
+    sendGift: d => { T('Gifts').push({ GiftId: id(), GuestId: d.guestId || '', Name: d.name || (by('Guests', 'GuestId', d.guestId) || {}).Name || 'Guest', Method: d.method, Amount: Number(d.amount) || '', Currency: d.currency || 'NPR', Note: d.note || '', Status: 'Received', Timestamp: nowS() }); save(); return { ok: true }; },
+    track: () => true, trackBatch: () => true,
+    markOpened: d => { const g = guest(d.guestId); if (!bool(g.InviteOpened)) update('Guests', 'GuestId', g.GuestId, { InviteOpened: 'TRUE', InviteOpenedAt: nowS() }); return true; },
+
+    'admin.login': () => ({ valid: true }),
+    return dt ? { email: 'helper@example.com', name: 'Demo Helper', role: 'helper', duties: dt.split(',').filter(Boolean), tabs: dt.split(',').filter(Boolean) } : { email: 'owner@example.com', name: 'Demo Owner', role: 'owner', duties: [], tabs: [] }; },
+    'admin.stats': stats,
+    'admin.guests': () => T('Guests').map(withG),
+    'admin.people': () => T('Members').map(withM).map(m => Object.assign(m, { Household: (by('Guests', 'GuestId', m.GuestId) || {}).Name || '' })),
+    'admin.household': d => { const g = guest(d.guestId), has = x => x.GuestId === g.GuestId; return { guest: withG(g), members: members(g.GuestId).map(withM), rsvps: T('EventRsvp').filter(has), gifts: T('Gifts').filter(has), uploads: T('Media').filter(has).length, family: [] }; },
+    'admin.saveGuest': d => upsert('Guests', 'GuestId', Object.assign({}, d, { GuestId: d.GuestId || 'G' + id(), InviteCode: d.InviteCode || id().slice(0, 6) })),
+    'admin.deleteGuest': d => del('Guests', 'GuestId', d.guestId),
+    'admin.saveMember': d => upsert('Members', 'MemberId', Object.assign({}, d, { MemberId: d.MemberId || 'M' + id() })).MemberId,
+    'admin.deleteMember': d => del('Members', 'MemberId', d.memberId),
+    'admin.linkControl': d => { const g = T('Guests').filter(x => x.GuestId === d.guestId)[0]; if (!g) throw new Error('Guest not found'); if (d.revoked !== undefined) g.LinkRevoked = d.revoked ? 'TRUE' : ''; if (d.expires !== undefined) g.LinkExpires = d.expires || ''; if (d.newCode) g.InviteCode = id().slice(0, 6).toUpperCase(); save(); return g; },
+    'admin.genCodes': () => { T('Guests').forEach(g => { if (!g.InviteCode) g.InviteCode = id().slice(0, 6); }); save(); return T('Guests').length; },
+    'admin.importGuests': d => { (d.rows || []).forEach(r => T('Guests').push(Object.assign({}, r, { GuestId: 'G' + id() }))); save(); return (d.rows || []).length; },
+    'admin.setAccommodationEligible': d => update('Guests', 'GuestId', d.guestId, { AccommodationEligible: bool(d.value) ? 'TRUE' : 'FALSE' }),
+    'admin.rooms': () => ({ rooms: T('Rooms'), requests: T('Accommodation') }),
+    'admin.saveRoom': d => upsert('Rooms', 'RoomId', Object.assign({}, d, { RoomId: d.RoomId || 'R' + id() })),
+    'admin.assignRoom': d => update('Accommodation', 'RequestId', d.requestId, { RoomId: d.roomId, Status: d.roomId ? 'Assigned' : 'Requested', UpdatedAt: nowS() }),
+    'admin.settings': () => T('Settings'),
+    'admin.saveSetting': d => upsert('Settings', 'Key', { Key: d.key, Value: d.value }),
+    'admin.checkIn': d => firstIn('Guests', 'GuestId', d.guestId, d.at),
+    'admin.verifyAge': d => update('Guests', 'GuestId', d.guestId, { AgeVerified: bool(d.value) ? 'TRUE' : 'FALSE' }),
+    'admin.verifyMember': d => update('Members', 'MemberId', d.memberId, { AgeVerified: bool(d.value) ? 'TRUE' : 'FALSE' }),
+    'admin.checkInMember': d => firstIn('Members', 'MemberId', d.memberId, d.at),
+    'admin.events': () => T('Events'),
+    'admin.media': () => T('Media').slice().reverse(),
+    'admin.mediaExport': () => T('Media').map(m => ({ event: (by('Events', 'EventId', m.EventId) || {}).NameEn || 'General', takenAt: m.Timestamp, uploadedAt: m.Timestamp, name: m.Name, side: m.Side, type: m.Type, fileName: m.FileName, sizeMB: Math.round(m.SizeBytes / 104857.6) / 10, status: m.Status, download: '#', view: '#' })),
+    'admin.moderateMedia': d => update('Media', 'MediaId', d.mediaId, { Status: d.status }),
+    'admin.mediaNote': d => update('Media', 'MediaId', d.mediaId, { Transcript: d.transcript || '', Summary: d.summary || '', Category: d.category || '', Starred: d.starred ? 'TRUE' : '', AudioFlag: d.audioFlag || '' }),
+    'admin.games': () => T('Games'),
+    'admin.saveGame': d => upsert('Games', 'GameId', Object.assign({}, d, { GameId: d.GameId || 'GM' + id() })),
+    'admin.postLive': d => { T('Live').forEach(l => l.Active = 'FALSE'); if (d.en || d.messageEn || d.MessageEn) T('Live').push({ Timestamp: nowS(), MessageEn: d.en || d.messageEn || d.MessageEn, MessageNe: d.ne || d.messageNe || d.MessageNe || '', Active: 'TRUE' }); save(); return true; },
+    'admin.rituals': () => T('Rituals').slice().sort((a, b) => a.Order - b.Order),
+    'admin.saveRitual': d => upsert('Rituals', 'RitualId', Object.assign({}, d, { RitualId: d.RitualId || 'RT' + id() })),
+    'admin.ritualNow': d => { T('Rituals').forEach(r => { if (r.RitualId === d.ritualId) { r.Status = d.status || 'now'; r.StartedAt = d.status === 'upcoming' ? '' : nowS(); } else if (r.Status === 'now' && (d.status || 'now') === 'now') r.Status = 'done'; }); save(); return rituals(); },
+    'admin.envelopePhoto': () => ({ fileId: 'demo-envelope-' + id() }),
+    'admin.memories': () => T('MomMemories'),
+    'admin.memoryBook': () => {
+      const p = {}; T('MomProfile').forEach(r => p[r.Key] = r.Value);
+      return { profile: p, memories: T('MomMemories').filter(m => m.Status === 'Approved'), diyas: T('MomDiyas').filter(x => x.Blessing) };
+    },
+    'admin.moderateMemory': d => update('MomMemories', 'MemoryId', d.memoryId, { Status: d.status }),
+    'admin.saveMom': d => { Object.keys(d).forEach(k => upsert('MomProfile', 'Key', { Key: k, Value: d[k] })); return true; },
+    'admin.venues': () => T('Venues'),
+    'admin.saveVenue': d => upsert('Venues', 'VenueId', Object.assign({}, d, { VenueId: d.VenueId || 'V' + id() })),
+    'admin.deleteVenue': d => del('Venues', 'VenueId', d.id),
+    'admin.planner': () => {
+      const people = T('Vibe').map(p => Object.assign({}, p, { fun: Number(p.Fun) || 0, age: 3, epr: 3, vibe: (Number(p.Fun) || 0) / 2 + 1.5, eprBand: p.EduProf })), sides = {};
+      people.forEach(p => { const s = sides[p.Side] = sides[p.Side] || { people: 0, confirmed: 0, unconfirmed: 0, n: 0, fun: 0, vibe: 0, funMix: { good: 0, okay: 0, boring: 0 }, eprMix: { Best: 0, Average: 0, Okay: 0 }, circles: {} };
+        const c = Number(p.Attendance) || 0; s.people += c; s[bool(p.Confirmed) ? 'confirmed' : 'unconfirmed'] += c; s.n++; s.fun += p.fun; s.vibe += p.vibe; s.funMix[p.fun >= 4 ? 'good' : p.fun >= 2 ? 'okay' : 'boring']++; if (s.eprMix[p.eprBand] !== undefined) s.eprMix[p.eprBand]++; s.circles[p.Circle] = (s.circles[p.Circle] || 0) + c; });
+      Object.values(sides).forEach(s => { s.funAvg = s.fun / s.n; s.vibeAvg = s.vibe / s.n; s.ageAvg = 3; s.eprAvg = 3; });
+      return { people: people, sides: sides, traditions: T('Traditions'), scenarios: T('Scenarios'), totals: { people: people.reduce((a, p) => a + Number(p.Attendance), 0), vibePerPerson: 3.5, traditionBoost: 2, forecast: 9 }, tips: ['Demo tip: mix tables across sides and add a Bride vs Groom game.'] };
+    },
+    'admin.saveVibe': d => upsert('Vibe', 'PersonId', Object.assign({}, d, { PersonId: d.PersonId || 'P' + id() })),
+    'admin.deleteVibe': d => del('Vibe', 'PersonId', d.id),
+    'admin.saveTradition': d => upsert('Traditions', 'TraditionId', Object.assign({}, d, { TraditionId: d.TraditionId || 'TR' + id() })),
+    'admin.deleteTradition': d => del('Traditions', 'TraditionId', d.id),
+    'admin.saveScenario': d => upsert('Scenarios', 'ScenarioId', Object.assign({}, d, { ScenarioId: d.ScenarioId || 'SC' + id() })),
+    'admin.deleteScenario': d => del('Scenarios', 'ScenarioId', d.id),
+    'admin.invites': () => T('Invites').slice().reverse(),
+    'admin.approveInvite': d => update('Invites', 'InviteId', d.inviteId, { Status: 'Approved', ApprovedAt: nowS() }),
+    'admin.rejectInvite': d => update('Invites', 'InviteId', d.inviteId, { Status: 'Rejected' }),
+    'admin.proofs': () => T('Proofs').slice().reverse(),
+    'admin.moderateProof': d => update('Proofs', 'ProofId', d.proofId, { Status: d.status }),
+    'admin.gifts': () => T('Gifts').slice().reverse(),
+    'admin.thankGift': d => update('Gifts', 'GiftId', d.giftId, { ThankedAt: nowS(), Status: 'Thanked', ThankedVia: d.via || '' }),
+    'admin.saveCashGift': d => { const row = { GuestId: d.guestId || '', Name: d.name, Side: d.side || '', Relation: d.relation || '', Method: d.method || 'Cash envelope', Amount: Number(d.amount) || '', Currency: d.currency || 'NPR', Note: d.note || '', Source: 'cash', EnteredBy: 'Demo Owner', PhotoId: d.photoId || '' };
+      if (!row.Name) throw new Error('Giver name required'); if (d.giftId) return update('Gifts', 'GiftId', d.giftId, row);
+      T('Gifts').push(Object.assign(row, { GiftId: 'GF' + id(), Status: 'Received', Timestamp: nowS() })); save(); return row; },
+    'admin.auditGift': d => { const st = { verified: 'Verified', flagged: 'Flagged', pending: '' }[String(d.status).toLowerCase()];
+      if (st === undefined) throw new Error('Status must be verified, flagged or pending'); if (st === 'Flagged' && !d.note) throw new Error('Add a short note for the discrepancy');
+      return update('Gifts', 'GiftId', d.giftId, { AuditStatus: st, AuditedAt: st ? nowS() : '', AuditedBy: st ? 'Demo Owner' : '', AuditNote: d.note || '' }); },
+    'admin.setTable': d => update('Guests', 'GuestId', d.guestId, { Table: String(d.table || '').slice(0, 20) }),
+    'admin.blastList': d => { const seen = {}, people = [], arrived = {};
+      T('Members').forEach(m => { if (bool(m.CheckedIn)) arrived[m.GuestId] = 1; });
+      T('Guests').forEach(g => { if (bool(g.CheckedIn) || arrived[g.GuestId] || bool(g.LinkRevoked) || g.Status === 'Declined' || (d && d.side && g.Side !== d.side && g.Side !== 'Both')) return;
+        let k = String(g.Phone || '').replace(/\D/g, '').replace(/^00/, ''); if (/^9[78]\d{8}$/.test(k)) k = '977' + k;
+        if (k.length < 7 || seen[k]) return; seen[k] = 1; people.push({ name: g.Name, phone: (k.length > 10 ? '+' : '') + k }); });
+      return { count: people.length, people: people, phones: people.map(p => p.phone).join(',') }; },
+    'admin.undoCheckIn': d => d.memberId ? update('Members', 'MemberId', d.memberId, { CheckedIn: 'FALSE', CheckedInAt: '' }) : update('Guests', 'GuestId', d.guestId, { CheckedIn: 'FALSE', CheckedInAt: '' }),
+    'admin.freeze': d => {
+      if (d.windows !== undefined) {
+        const bad = String(d.windows || '').split(';').filter(w => w.trim()).some(w => { const p = w.split('>'), a = new Date(p[0]), b = new Date(p[1]); return p.length !== 2 || isNaN(a) || isNaN(b) || a >= b; });
+        if (bad) throw new Error('Each window needs a valid start before its end');
+        upsert('Settings', 'Key', { Key: 'freeze.windows', Value: d.windows });
+        if (d.on === undefined) return frozen();
+      }
+      const on = d.on === true || String(d.on).toUpperCase() === 'TRUE';
+      upsert('Settings', 'Key', { Key: 'freeze.on', Value: on ? 'TRUE' : 'FALSE' }); upsert('Settings', 'Key', { Key: 'freeze.until', Value: on ? (d.until || '') : '' });
+      if (d.messageEn !== undefined) upsert('Settings', 'Key', { Key: 'freeze.messageEn', Value: d.messageEn }); if (d.messageNe !== undefined) upsert('Settings', 'Key', { Key: 'freeze.messageNe', Value: d.messageNe });
+      return frozen(); },
+    'admin.thankQueue': thankQueue,
+    'admin.logThanks': d => { T('ThankYous').push({ ThankId: id(), GuestId: d.guestId || '', GiftId: (d.giftIds || []).join(','), Name: d.name, Channel: d.channel, To: d.to, Message: d.message, SentBy: 'Demo Owner', SentAt: nowS() });
+      (d.giftIds || []).forEach(g => { const r = by('Gifts', 'GiftId', g); if (r) Object.assign(r, { ThankedAt: nowS(), Status: 'Thanked', ThankedVia: d.channel }); }); save(); return true; },
+    'admin.admins': () => T('Admins'),
+    'admin.saveAdmin': d => {
+      const em = String(d.Email || '').trim().toLowerCase(); if (!em) throw new Error('Email required');
+      const ex = by('Admins', 'Email', em), pass = !ex || d.reset ? id().toLowerCase() : '';
+      const row = { Email: em, Name: d.Name || (ex || {}).Name || '', Role: ['owner', 'manager', 'helper'].indexOf(String(d.Role).toLowerCase()) >= 0 ? String(d.Role).toLowerCase() : 'helper', Duties: d.Duties || '', Active: 'TRUE' };
+      if (pass) row.Passcode = pass; if (!ex) row.AddedAt = nowS();
+      upsert('Admins', 'Email', row); return { passcode: pass };
+    },
+    'admin.deleteAdmin': d => update('Admins', 'Email', String(d.email).toLowerCase(), { Active: 'FALSE' }),
+    'admin.whispers': () => T('Whispers').slice().reverse(),
+    'admin.analytics': analytics,
+    'admin.logs': () => ({ guest: '#', admin: '#' })
+  };
+
+  window.DEMO_API = {
+    handle: function (action, data) {
+      const fn = A[action];
+      if (!fn) { console.warn('[demo] no mock for', action); return action.indexOf('admin.') === 0 ? [] : null; }
+      if ((sessionStorage.getItem('demoRole') === 'helper' || sessionStorage.getItem('demoDuties')) && action.indexOf('admin.') === 0 &&
+        !/^admin\.(login|me|stats|analytics|guests|people|household|checkIn|checkInMember|undoCheckIn|verifyAge|verifyMember|setTable|gifts|whispers|saveCashGift|auditGift|envelopePhoto|thankGift|thankQueue|logThanks|rituals|ritualNow|postLive|freeze)$/.test(action)) throw new Error('Unauthorized');
+      if (data && data.guestId && action.indexOf('admin.') !== 0) guard(T('Guests').filter(x => x.GuestId === data.guestId)[0]);
+      const v = fn(data || {});
+      return v === undefined ? null : JSON.parse(JSON.stringify(v));
+    },
+    reset: function () { localStorage.removeItem(KEY); localStorage.removeItem('guestId'); Object.keys(localStorage).filter(k => k.indexOf('api:') === 0).forEach(k => localStorage.removeItem(k)); sessionStorage.clear(); location.reload(); }
+  };
+
+  // First arrival wins: repeat scans never move CheckedInAt (mirrors firstCheckIn_ in Code.gs).
+  function firstIn(t, k, v, at) {
+    const r = by(t, k, v);
+    if (!r) throw new Error('Not found');
+    if (bool(r.CheckedIn) && r.CheckedInAt) return Object.assign({ alreadyIn: true }, r);
+    return update(t, k, v, { CheckedIn: 'TRUE', CheckedInAt: at || nowS() });
+  }
+
+  function guard(g) {
+    if (!g) return;
+    if (String(g.LinkRevoked).toUpperCase() === 'TRUE') throw new Error('This invitation link has been turned off. Please contact the family.');
+    if (g.LinkExpires && new Date() > new Date(g.LinkExpires)) throw new Error('This invitation link has expired. Please contact the family.');
+  }
+
+  function banner() {
+    if (document.getElementById('demoBanner')) return;
+    const b = document.createElement('div');
+    b.id = 'demoBanner';
+    b.style.cssText = 'position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:9999;background:#3f5d4a;color:#fff;font:600 12px/1.2 system-ui,sans-serif;padding:7px 12px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.2);display:flex;gap:8px;align-items:center';
+    b.innerHTML = '🧪 Demo data - not connected to Google Drive' + (/admin\//.test(location.pathname) ? ' · admin passcode: <b>demo</b>' : '') +
+      ' <button type="button" style="background:#fff;color:#3f5d4a;border:0;border-radius:999px;padding:3px 8px;font:inherit;cursor:pointer">Reset</button>';
+    b.querySelector('button').onclick = () => window.DEMO_API.reset();
+    document.body.appendChild(b);
+  }
+  // Demo file ids are not real Drive files - swap them for placeholder photos.
+  function fixImgs(root) {
+    (root.querySelectorAll ? root.querySelectorAll('img') : []).forEach(img => {
+      const m = /drive\.google\.com\/thumbnail\?id=(demo[^&]*)/.exec(img.getAttribute('src') || '');
+      if (m) img.src = pic(m[1].replace(/^demo/, 'wed'), 800, 800);
+    });
+  }
+  new MutationObserver(list => list.forEach(r => r.addedNodes.forEach(n => n.nodeType === 1 && fixImgs(n.parentNode || n))))
+    .observe(document.documentElement, { childList: true, subtree: true });
+
+  if (document.body) banner(); else document.addEventListener('DOMContentLoaded', banner);
+})();

@@ -1,0 +1,99 @@
+﻿# 🪔 Wedding Web App (Nepali Hindu Wedding)
+
+Free static site on **GitHub Pages** + **Google Apps Script / Sheets / Drive** as the backend.
+See [WEDDING_PLAN.md](WEDDING_PLAN.md) for the full plan and roadmap.
+
+## What's included (phase 0–6 foundation)
+- 🌐 Language switch: **English / नेपाली / नेपाली + English (mixed)**
+- 📝 Guest registration (required details, per-event RSVP, meal, travel dates)
+- 📊 Real-time attendance dashboard (auto-refresh every 15s)
+- 🏨 Accommodation — only for guests the admin enables
+- 🪪 Age verification + drinking bands (green / yellow / red / blue)
+- 🏷️ Name tags with relation to bride/groom + printable wristbands
+- 🎫 Personal guest pass with QR
+- 🪔 Memorial for Mom: light a diya, share memories, moderation
+- ⚙️ Admin settings: toggle every feature, theme colors, legal drinking age, language default
+- 🎨 Auto theme by side: **Bride side = "Gulabi Marigold"** (rose pink + marigold), **Groom side = "Royal Peacock"** (peacock teal + gold)
+- 📲 Installable app on **iOS and Android** (home screen icon, full-screen, bottom tab bar, works offline at the venue) with an **Install app** button
+- ⏹️ Auto turns OFF after `wedding.endDate` (shows a thank-you screen; memorial can stay open)
+
+## Setup (all free)
+
+### 1. Google backend
+1. Use a **personal Google account** (not a work account).
+2. Create a new Google Sheet → **Extensions → Apps Script**.
+3. Paste the contents of `apps-script/Code.gs` into `Code.gs`, save.
+4. Select function **`setup`** → **Run** → authorize.
+5. **Project Settings → Script Properties** → change `ADMIN_PASSCODE` to your own secret.
+6. **Deploy → New deployment → Web app**
+   - Execute as: **Me**
+   - Who has access: **Anyone**
+7. Copy the `/exec` URL.
+
+> After editing `Code.gs`, use **Deploy → Manage deployments → Edit → New version** so the same URL keeps working.
+
+### 2. Front end
+1. Paste the `/exec` URL into `js/config.js` → `API_URL`.
+2. Test locally (any static server), for example:
+   ```powershell
+   npx serve .
+   ```
+3. Open `admin/index.html`, log in with your passcode, add guests (or import CSV).
+
+### 3. Publish on GitHub Pages
+```powershell
+git init
+git add .
+git commit -m "Wedding site"
+git branch -M main
+git remote add origin https://github.com/<you>/<repo>.git
+git push -u origin main
+```
+GitHub → repo **Settings → Pages** → Source: `main` / root. Site URL: `https://<you>.github.io/<repo>/`.
+
+> ⚠️ This folder is currently inside a work OneDrive. Consider moving it to a personal folder before publishing.
+
+## Using it
+| Who | Link |
+|---|---|
+| Guest | `https://<site>/index.html?g=GUESTID` (copy or WhatsApp from admin) |
+| Registration | `register.html?g=GUESTID` |
+| Guest pass | `pass.html?g=GUESTID` |
+| Memorial | `memorial.html` |
+| Admin | `admin/index.html` |
+| Name tags / bands | `admin/nametags.html` |
+
+### Events
+Add rows to the **Events** sheet: `EventId, NameEn, NameNe, DateTime, Venue, MapLink, DressCode, RevealStyle, UnlockAt, Groups, Order, Visible`.
+- `Groups`: `All` or comma list (e.g., `Family, Bride`).
+- `UnlockAt`: event stays hidden (server-side) until this time.
+- `Visible`: `TRUE` to show.
+
+### Side themes
+- Applied automatically from the guest's `Side` (set by admin or chosen at registration).
+- Colors editable in Settings: `theme.bridePrimary/brideAccent`, `theme.groomPrimary/groomAccent`. Toggle: `feature.sideThemes`.
+
+### Install as app
+- **Android (Chrome):** tap **📲 Install app** → Install.
+- **iOS (Safari):** tap **📲 Install app** → follow the on-screen steps (Share → Add to Home Screen). iOS has no one-tap install API.
+- Opened inside WhatsApp/Instagram? The button tells guests to open the link in Safari/Chrome first.
+- Guests should install **from their personal link** so the app remembers who they are.
+- Requires HTTPS (GitHub Pages provides it). Icons are in `icons/`.
+
+### Auto turn-off
+- After `wedding.endDate` the server rejects guest requests and pages show a thank-you screen.
+- `app.keepMemorialAfterEnd = TRUE` keeps Mom's memorial page open. Admin pages keep working.
+
+### Drinking bands
+- Age is calculated from DOB. Legal age = setting `drink.legalAge`.
+- 🟡 Yellow until a volunteer ticks **ID verified** in Admin → Guests → becomes 🟢 Green.
+- 🔴 Red: under age · 🔵 Blue: guest chose "I don't drink".
+
+## Folder structure
+```
+index.html, register.html, pass.html, memorial.html
+admin/index.html, admin/nametags.html
+css/base.css, css/memorial.css
+js/config.js, api.js, i18n.js, app.js, register.js, pass.js, memorial.js, admin.js, nametags.js
+apps-script/Code.gs
+```

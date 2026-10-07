@@ -1,0 +1,195 @@
+﻿// Shared helpers: guest ID, config/theme, language switcher, QR, escaping.
+window.App = (function () {
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function guestId() {
+    const fromUrl = new URLSearchParams(location.search).get('g');
+    if (fromUrl) localStorage.setItem('guestId', fromUrl.trim());
+    return fromUrl || localStorage.getItem('guestId') || '';
+  }
+
+  function withGuest(href) {
+    const g = guestId();
+    return g ? href + (href.indexOf('?') >= 0 ? '&' : '?') + 'g=' + encodeURIComponent(g) : href;
+  }
+
+  async function config() {
+    const cached = sessionStorage.getItem('config');
+    if (cached) return JSON.parse(cached);
+    const c = await API.call('getConfig');
+    sessionStorage.setItem('config', JSON.stringify(c));
+    return c;
+  }
+
+  function on(c, key) { return String(c[key]).toUpperCase() === 'TRUE'; }
+
+  function applyTheme(c) {
+    const r = document.documentElement.style;
+    if (c['theme.primary']) r.setProperty('--primary', c['theme.primary']);
+    if (c['theme.accent']) r.setProperty('--accent', c['theme.accent']);
+    if (c['theme.brideColor']) r.setProperty('--bride', c['theme.brideColor']);
+    if (c['theme.groomColor']) r.setProperty('--groom', c['theme.groomColor']);
+    if (c['lang.default']) window.__defaultLang = c['lang.default'];
+    applySideTheme(c);
+  }
+
+  // Auto theme by side: Bride = "Gulabi Marigold", Groom = "Royal Peacock".
+  function setSide(side, c) {
+    if (side === 'Bride' || side === 'Groom' || side === 'Both') localStorage.setItem('side', side);
+    applySideTheme(c || JSON.parse(sessionStorage.getItem('config') || '{}'));
+  }
+
+  function applySideTheme(c) {
+    const side = localStorage.getItem('side');
+    const cls = document.body.classList;
+    cls.remove('side-bride', 'side-groom');
+    if (!on(c, 'feature.sideThemes') || (side !== 'Bride' && side !== 'Groom')) return;
+    const key = side === 'Bride' ? 'bride' : 'groom';
+    cls.add('side-' + key);
+    const r = document.documentElement.style;
+    if (c['theme.' + key + 'Primary']) r.setProperty('--primary', c['theme.' + key + 'Primary']);
+    if (c['theme.' + key + 'Accent']) r.setProperty('--accent', c['theme.' + key + 'Accent']);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+  }
+
+  function isClosed(c) {
+    if (c.closed) return true;
+    const end = new Date(c['wedding.endDate']);
+    return !isNaN(end) && new Date() > end;
+  }
+
+  function showClosed(c) {
+    const main = document.querySelector('main');
+    if (!main) return;
+    const mem = on(c, 'app.keepMemorialAfterEnd') && on(c, 'feature.memorial');
+    main.innerHTML = '<section class="card center closed"><div style="font-size:3rem">🪔</div>' +
+      '<h1>' + esc(I18N.t('closed.title')) + '</h1><p>' + esc(I18N.t('closed.text')) + '</p>' +
+      (mem ? '<p><a class="btn" href="memorial.html">' + esc(I18N.t('nav.memorial')) + '</a></p>' : '') + '</section>';
+    document.querySelectorAll('.topbar nav, #live').forEach(el => el.hidden = true);
+  }
+
+  // ---------- Install as app (iOS + Android) ----------
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; });
+
+  function isStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+
+  function platform() {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
+    if (/Android/i.test(ua)) return 'android';
+    return 'other';
+  }
+
+  function inAppBrowser() {
+    return /FBAN|FBAV|Instagram|WhatsApp|Line\/|Snapchat|wv\)/i.test(navigator.userAgent);
+  }
+
+  function setupInstall(c) {
+    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+      navigator.serviceWorker.register('sw.js').catch(() => { });
+    }
+    if (!on(c, 'feature.installApp') || isStandalone() || document.getElementById('installBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'installBtn';
+    btn.className = 'install-fab';
+    btn.innerHTML = '📲 <span>' + esc(I18N.t('pwa.install')) + '</span>';
+    btn.onclick = installApp;
+    document.body.appendChild(btn);
+    document.addEventListener('langchange', () => btn.querySelector('span').textContent = I18N.t('pwa.install'));
+    window.addEventListener('appinstalled', () => btn.remove());
+  }
+
+  async function installApp() {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      return;
+    }
+    const p = platform();
+    let steps;
+    if (inAppBrowser()) {
+      steps = [I18N.t('pwa.inApp'), p === 'ios' ? I18N.t('pwa.openSafari') : I18N.t('pwa.openChrome')];
+    } else if (p === 'ios') {
+      steps = [I18N.t('pwa.iosStep1'), I18N.t('pwa.iosStep2'), I18N.t('pwa.iosStep3')];
+    } else {
+      steps = [I18N.t('pwa.androidStep1'), I18N.t('pwa.androidStep2')];
+    }
+    const sheet = document.createElement('div');
+    sheet.className = 'install-sheet';
+    sheet.innerHTML = '<div class="install-card"><div class="install-icon"><img src="icons/icon-192.png" alt=""></div>' +
+      '<h3>' + esc(I18N.t('pwa.title')) + '</h3><ol>' + steps.map(s => '<li>' + esc(s) + '</li>').join('') + '</ol>' +
+      (inAppBrowser() ? '<p><button class="btn alt" data-copy>' + esc(I18N.t('pwa.copyLink')) + '</button></p>' : '') +
+      (p === 'ios' && !inAppBrowser() ? '<div class="ios-arrow">⬇️</div>' : '') +
+      '<p><button class="btn ghost" data-close>' + esc(I18N.t('pwa.close')) + '</button></p></div>';
+    sheet.addEventListener('click', async e => {
+      if (e.target === sheet || e.target.closest('[data-close]')) sheet.remove();
+      if (e.target.closest('[data-copy]')) { try { await navigator.clipboard.writeText(location.href); e.target.textContent = '✅'; } catch (x) { } }
+    });
+    document.body.appendChild(sheet);
+  }
+
+  function langSwitcher(el) {
+    if (!el) return;
+    el.innerHTML = ['en', 'ne', 'mix'].map(m =>
+      '<button type="button" data-lang="' + m + '" class="' + (I18N.mode() === m ? 'active' : '') + '">' +
+      (m === 'en' ? 'EN' : m === 'ne' ? 'ने' : 'ने+EN') + '</button>').join('');
+    el.onclick = e => {
+      const b = e.target.closest('button[data-lang]');
+      if (!b) return;
+      I18N.set(b.dataset.lang);
+      langSwitcher(el);
+    };
+  }
+
+  function qr(el, text, size) {
+    if (!el || typeof qrcode === 'undefined') return;
+    const q = qrcode(0, 'M');
+    q.addData(text);
+    q.make();
+    el.innerHTML = q.createSvgTag({ cellSize: size || 5, margin: 2, scalable: true });
+  }
+
+  function passUrl(id) {
+    return location.origin + location.pathname.replace(/[^/]*$/, '').replace(/admin\/$/, '') + 'pass.html?g=' + encodeURIComponent(id);
+  }
+
+  function msg(el, text, type) {
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'msg ' + (type || '');
+    el.hidden = !text;
+  }
+
+  async function boot() {
+    try {
+      const c = await config();
+      applyTheme(c);
+      I18N.apply();
+      langSwitcher(document.getElementById('langSwitch'));
+      document.querySelectorAll('a[data-guest-link]').forEach(a => a.href = withGuest(a.getAttribute('href')));
+      const isAdminPage = /\/admin\//.test(location.pathname);
+      if (!isAdminPage && isClosed(c)) {
+        const memorialPage = /memorial\.html$/.test(location.pathname);
+        if (!(memorialPage && on(c, 'app.keepMemorialAfterEnd'))) {
+          showClosed(c);
+          throw new Error('closed');
+        }
+      }
+      if (!isAdminPage) setupInstall(c);
+      return c;
+    } catch (e) {
+      I18N.apply();
+      langSwitcher(document.getElementById('langSwitch'));
+      throw e;
+    }
+  }
+
+  return { esc, guestId, withGuest, config, on, applyTheme, setSide, langSwitcher, qr, passUrl, msg, boot, isStandalone };
+})();

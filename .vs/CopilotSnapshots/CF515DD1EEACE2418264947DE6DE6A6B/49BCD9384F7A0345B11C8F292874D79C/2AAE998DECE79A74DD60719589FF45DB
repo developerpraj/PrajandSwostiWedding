@@ -1,0 +1,39 @@
+﻿# Day-of Runbook
+
+## Roles
+| Role | Who | Can do |
+|---|---|---|
+| owner | Couple | Everything (settings, admins, gifts) |
+| manager | 1–2 trusted family members | Guests, check-in, live banner, rituals, moderation |
+| helper | Gate/venue volunteers | Check-in and age verification only |
+
+Add admins in **Admin → Admins**. Each person gets their own passcode.
+
+## One week before
+- [ ] Move the repo out of the work OneDrive to a personal account/machine.
+- [ ] Set `API_URL` in `js/config.js` to the deployed `/exec` URL.
+- [ ] Script Properties: `GITHUB_TOKEN` (fine-grained PAT, this repo only, Contents read/write), `GITHUB_REPO` (`owner/repo`), optional `GITHUB_BRANCH`, `GITHUB_PATH`.
+- [ ] Run `setup` again. It installs the `publishLiveTick` (5 min), `healthCheck` (hourly), and `nightlyBackup` triggers.
+- [ ] Confirm `https://<owner>.github.io/<repo>/live.json` updates after posting a test banner.
+- [ ] Run the load test: `node tests/load/load-test.js <API_URL> 50 getConfig` (p95 under ~5 s, 0 errors).
+- [ ] Open the site on an iPhone, an Android phone, and inside WhatsApp/Messenger in-app browsers.
+- [ ] Set `app.helpPhone` (shown as a big call button in Elder Mode) and `media.largeAlbumUrl`.
+- [ ] Print the guest list (Admin → Guests → export) as a paper check-in fallback.
+
+## During events
+- **Post a banner:** Admin → Live. Guests see it within about 20 s through `live.json`.
+- **Advance the ritual:** Admin → Rituals → **Now**.
+- **Turn a feature off:** Admin → Settings → toggle `feature.*` (takes effect within about 60 s because of the config cache).
+- **Check-in:** scan the pass QR. With no signal, guests' pass pages still open from the phone's saved copy, and you can tick names on the paper list and enter them later.
+
+## If something breaks
+| Symptom | Action |
+|---|---|
+| Health email: errors | Open the Apps Script **Executions** view and read the latest failure. |
+| Health email: mail quota | Registration still works; only confirmation emails stop. |
+| Health email: live.json | The PAT may have expired. Create a new one and update Script Properties. Phones fall back to the API automatically. |
+| Apps Script down / quota | Use the paper check-in list. Turn off `feature.games` and `feature.media` to reduce load. |
+| Wrong data | Restore from Drive `Wedding/Backups/<date>` (nightly copy). |
+
+## Contacts
+- Tech lead: ______  ·  Backup: ______

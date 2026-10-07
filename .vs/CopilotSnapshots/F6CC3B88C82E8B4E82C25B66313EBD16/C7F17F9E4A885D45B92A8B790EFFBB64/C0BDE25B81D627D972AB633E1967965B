@@ -1,0 +1,991 @@
+﻿(function () {
+  const $ = id => document.getElementById(id);
+  const esc = s => App.esc(s);
+  const msg = (t, type) => App.msg($('msg'), t, type);
+  let guests = [], rooms = [], requests = [], timer = null, role = '';
+
+  const siteRoot = () => location.origin + location.pathname.replace(/admin\/[^/]*$/, '');
+  const inviteUrl = id => siteRoot() + 'index.html?g=' + encodeURIComponent(id);
+  const yes = v => v === true || String(v).toUpperCase() === 'TRUE';
+
+  async function call(action, data) {
+    try { return await API.call(action, data); }
+    catch (e) {
+      if (e.message === 'unauthorized') { sessionStorage.removeItem('adminKey'); location.reload(); }
+      msg(e.message, 'err');
+      throw e;
+    }
+  }
+
+  // Shrink a phone photo to ~1600px JPEG and store it privately in Wedding/Envelopes.
+  async function callUpload(file) {
+    const img = await createImageBitmap(file), s = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas'); c.width = img.width * s; c.height = img.height * s;
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return call('admin.envelopePhoto', { data: c.toDataURL('image/jpeg', 0.8) });
+  }
+
+  // ---------- Login ----------
+  $('loginForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    sessionStorage.setItem('adminKey', e.target.key.value);
+    try { await API.call('admin.login'); start(); }
+    catch (err) { sessionStorage.removeItem('adminKey'); msg('Invalid passcode', 'err'); }
+  });
+  $('logout').addEventListener('click', e => { e.preventDefault(); sessionStorage.removeItem('adminKey'); location.reload(); });
+
+  function start() {
+    $('loginForm').hidden = true;
+    $('app').hidden = false;
+    $('logout').hidden = false;
+    msg('');
+    refreshStats();
+    timer = setInterval(refreshStats, APP_CONFIG.ADMIN_REFRESH_MS);
+    loadGuests();
+    call('admin.me').then(me => {
+      role = me.role || 'owner';
+      document.body.dataset.role = role;
+      $('logout').textContent = '👤 ' + me.name + ' · Logout';
+      document.querySelectorAll('[data-role="owner"]').forEach(el => el.hidden = me.role !== 'owner');
+      applyDuties(me.tabs);
+    }).catch(() => { });
+  }
+
+  // ---------- Duty run-sheet: helpers only see their assigned tabs ----------
+  function applyDuties(tabs) {
+    if (!tabs || !tabs.length) return;
+    document.body.classList.add('duty-view');
+    document.querySelectorAll('#tabs button[data-tab]').forEach(b => b.hidden = tabs.indexOf(b.dataset.tab) < 0);
+    const first = document.querySelector('#tabs button[data-tab="' + tabs[0] + '"]');
+    if (first) first.click();
+  }
+
+  // ---------- Thank-you engine ----------
+  let tq = [], tqF = 'todo';
+  async function loadThanks() { tq = await call('admin.thankQueue'); renderThanks(); }
+  function renderThanks() {
+    const q = ($('tqSearch').value || '').toLowerCase(), ne = $('tqNe').checked;
+    const list = tq.filter(o => (!tqF || (tqF === 'todo' ? !o.sentAt : !!o.sentAt)) && (!q || JSON.stringify(o).toLowerCase().indexOf(q) >= 0));
+    $('tqList').innerHTML = list.map((o, i) => {
+      const m = ne ? o.messageNe : o.message, ph = String(o.phone || '').replace(/\D/g, ''), t = encodeURIComponent(m);
+      return '<div class="tq-item" data-k="' + esc(o.key) + '"><div class="row-between"><b>' + esc(o.name) + '</b><small class="muted">' + esc([o.relation, o.events.join(', ')].filter(Boolean).join(' · ')) + '</small></div>' +
+        '<textarea rows="3">' + esc(m) + '</textarea><div class="btn-row">' +
+        (ph ? '<a class="btn sm" target="_blank" data-ch="whatsapp" href="https://wa.me/' + ph + '?text=' + t + '">WhatsApp</a><a class="btn ghost sm" data-ch="sms" href="sms:+' + ph + '?body=' + t + '">SMS</a>' : '') +
+        (o.email ? '<a class="btn ghost sm" data-ch="email" href="mailto:' + esc(o.email) + '?subject=' + encodeURIComponent('Thank you 🙏') + '&body=' + t + '">Email</a>' : '') +
+        '<button class="btn ghost sm" data-ch="manual">✓ Done</button>' +
+        (o.sentAt ? ' <small>✅ ' + esc(String(o.sentAt).slice(0, 10) + ' ' + (o.sentVia || '')) + '</small>' : '') + '</div></div>';
+    }).join('') || '<p class="muted">Nothing here 🎉</p>';
+  }
+  $('tqList').addEventListener('input', e => {
+    // keep the links in sync with an edited message
+    const box = e.target.closest('.tq-item'); if (!box) return;
+    const t = encodeURIComponent(e.target.value);
+    box.querySelectorAll('a[data-ch]').forEach(a => a.href = a.href.replace(/(text=|body=)[^&]*$/, '$1' + t));
+  });
+  $('tqList').addEventListener('click', e => {
+    const b = e.target.closest('[data-ch]'); if (!b) return;
+    const box = b.closest('.tq-item'), o = tq.find(x => x.key === box.dataset.k);
+    call('admin.logThanks', { guestId: o.guestId, giftIds: o.giftIds, name: o.name, channel: b.dataset.ch, to: b.dataset.ch === 'email' ? o.email : o.phone, message: box.querySelector('textarea').value })
+      .then(() => { o.sentAt = new Date().toISOString(); o.sentVia = b.dataset.ch; setTimeout(renderThanks, 600); });
+  });
+  $('tqFilter').addEventListener('click', e => {
+    const b = e.target.closest('[data-f]'); if (!b) return;
+    tqF = b.dataset.f; $('tqFilter').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); renderThanks();
+  });
+  $('tqSearch').addEventListener('input', renderThanks);
+  $('tqNe').addEventListener('change', renderThanks);
+
+  // ---------- Admin team ----------
+  async function loadTeam() {
+    const t = await call('admin.admins');
+    $('teamTable').innerHTML = '<tr><th>Name</th><th>Role</th><th>Duties</th><th>Passcode</th><th>Last seen</th><th></th></tr>' + t.map(a =>
+      '<tr data-e="' + esc(a.Email) + '" data-d="' + esc(a.Duties || '') + '"><td>' + esc(a.Name) + '<br><small>' + esc(a.Email) + '</small></td><td>' + esc(a.Role) + '</td><td>' + (esc(a.Duties || '') || '<small class="muted">all helper tools</small>') + '</td><td>' + esc(a.Passcode) + '</td><td>' + esc(String(a.LastSeen || '').slice(0, 16)) + '</td><td>' +
+      (String(a.Active).toUpperCase() === 'FALSE' ? 'disabled' : '<button class="btn ghost sm" data-t="reset">New code</button> <button class="btn ghost sm" data-t="off">Disable</button>') + '</td></tr>').join('');
+  }
+  const showCode = (name, r) => { if (r.passcode) { $('teamNew').hidden = false; $('teamNew').textContent = 'Passcode for ' + name + ': ' + r.passcode + ' (shown once — send privately)'; } };
+  $('teamForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target).entries());
+    delete d.duty;
+    d.Duties = [].map.call(e.target.querySelectorAll('input[name="duty"]:checked'), x => x.value).join(',');
+    showCode(d.Name, await call('admin.saveAdmin', d)); e.target.reset(); loadTeam();
+  });
+  $('teamTable').addEventListener('click', async e => {
+    const b = e.target.closest('[data-t]'); if (!b) return;
+    const em = b.closest('tr').dataset.e;
+    if (b.dataset.t === 'off' && confirm('Disable ' + em + '?')) await call('admin.deleteAdmin', { email: em });
+    if (b.dataset.t === 'reset') { const row = b.closest('tr'), name = row.cells[0].firstChild.textContent; showCode(name, await call('admin.saveAdmin', { Email: em, Name: name,
+      Role: row.cells[1].textContent, Duties: row.dataset.d, reset: true })); }
+    loadTeam();
+  });
+
+  // ---------- Tabs ----------
+  $('tabs').addEventListener('click', e => {
+    const b = e.target.closest('button[data-tab]');
+    if (!b) return;
+    if (b.dataset.role === 'owner' && role && role !== 'owner') { msg('Unauthorized: owners only', 'err'); return; }
+    document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('active', x === b));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + b.dataset.tab));
+    const fn = { door: loadDoor, live: () => { loadRituals(); loadFreeze(); }, guests: loadGuests,
+      gifts: loadGifts, thanks: loadThanks, team: loadTeam, settings: loadSettings }[b.dataset.tab];
+    if (fn) fn();
+  });
+
+  // ---------- Analytics & logistics ----------
+  const li = (rows, k, v) => rows.map(r => '<li><span>' + esc(r[k]) + '</span><b>' + esc(r[v]) + '</b></li>').join('') || '<li class="muted">–</li>';
+  // Demo analytics shown until real activity exists (or with ?demo=1). Remove once live.
+  const DEMO_ANALYTICS = {
+    activity: {
+      activeToday: 46, activeWeek: 183, today: 612, devices: { phone: 164, desktop: 19 },
+      byHour: [0, 0, 0, 0, 0, 1, 4, 9, 14, 18, 22, 25, 31, 28, 20, 17, 24, 38, 52, 61, 47, 30, 12, 3],
+      topPages: [{ k: 'Home', n: 420 }, { k: 'RSVP', n: 288 }, { k: 'Photos', n: 241 }, { k: 'Gift', n: 96 }, { k: 'Games', n: 88 }],
+      topActions: [{ k: 'register', n: 141 }, { k: 'upload', n: 117 }, { k: 'markAttended', n: 92 }, { k: 'sendGift', n: 54 }, { k: 'lightDiya', n: 33 }]
+    },
+    notRegistered: [{ name: 'Ram Bahadur Thapa', phone: '9779841000001', side: 'Groom' }, { name: 'Sita Karki', phone: '9779851000002', side: 'Bride' }, { name: 'Hari & Gita Shrestha', phone: '', side: 'Both' }],
+    invites: { requested: 4 }, proofsPending: 2, accommodation: { unassigned: 7 },
+    media: { total: 538, videos: 61, sizeGB: 14.2, byEvent: [{ event: 'Mehendi', count: 142 }, { event: 'Haldi', count: 98 }, { event: 'Wedding', count: 251 }, { event: 'Reception', count: 47 }], topUploaders: [{ name: 'Anisha (cousin)', count: 64 }, { name: 'Bikash', count: 41 }, { name: 'Prakriti', count: 33 }] },
+    gifts: { count: 128, notThanked: 37, total: { NPR: 845000, USD: 1200 } },
+    ages: { 'Under 12': 18, '13-25': 64, '26-40': 97, '41-60': 81, '60+': 39 },
+    venues: [{ venue: 'Hotel Annapurna', guests: 210 }, { venue: 'Family home', guests: 88 }],
+    perEvent: [
+      { name: 'Mehendi', invited: 120, yes: 96, attended: 89 }, { name: 'Haldi', invited: 80, yes: 71, attended: 66 },
+      { name: 'Wedding', invited: 320, yes: 274, attended: 251 }, { name: 'Reception', invited: 300, yes: 238, attended: 0 }
+    ],
+    thanks: { queue: 164, sent: 127, byChannel: { whatsapp: 98, sms: 17, email: 12 } }
+  };
+  async function loadAnalytics() {
+    let a, demo = /[?&]demo=1/.test(location.search);
+    if (!demo) { try { a = await call('admin.analytics'); } catch (e) { demo = true; } }
+    if (!a || (!a.activity.activeWeek && !a.gifts.count)) demo = true;
+    if (demo) a = DEMO_ANALYTICS;
+    const card = (n, l) => '<div class="card stat"><div class="num">' + esc(n) + '</div><div class="muted">' + esc(l) + '</div></div>';
+    $('anDemo').hidden = !demo;
+    const pe = a.perEvent || [], th = a.thanks;
+    $('anAttend').innerHTML = pe.length ? '<tr><th>Function</th><th>Invited</th><th>RSVP yes</th><th>Attended</th><th></th></tr>' + pe.map(e =>
+      '<tr><td>' + esc(e.name) + '</td><td>' + e.invited + '</td><td>' + e.yes + '</td><td>' + (e.attended || '—') + '</td><td><div class="bar"><span style="width:' + (e.invited ? Math.round((e.attended || e.yes) * 100 / e.invited) : 0) + '%"></span></div></td></tr>').join('') : '';
+    $('anThanks').innerHTML = th ? card(th.sent + ' / ' + th.queue, 'Thank-yous sent') + Object.keys(th.byChannel).map(k => card(th.byChannel[k], 'via ' + k)).join('') : '';
+    $('anStats').innerHTML = [
+      card(a.activity.activeToday, 'Active people today'), card(a.activity.activeWeek, 'Active this week'),
+      card(a.activity.today, 'Actions today'), card(a.activity.devices.phone + ' / ' + a.activity.devices.desktop, 'Phone / desktop sessions'),
+      card(a.notRegistered.length, 'Not registered'), card(a.invites.requested, 'Invites to approve'),
+      card(a.proofsPending, 'Proofs to review'), card(a.accommodation.unassigned, 'Rooms to assign'),
+      card(a.media.total + ' (' + a.media.videos + ' videos)', 'Uploads'), card(a.media.sizeGB + ' GB', 'Original media size'),
+      card(a.gifts.count, 'Gifts / blessings'), card(a.gifts.notThanked, 'Thank-yous pending')
+    ].join('');
+    const max = Math.max.apply(null, a.activity.byHour.concat(1));
+    $('anHours').innerHTML = a.activity.byHour.map((n, h) => '<span title="' + h + ':00 – ' + n + '" style="height:' + (n * 100 / max) + '%"></span>').join('');
+    $('anPages').innerHTML = li(a.activity.topPages, 'k', 'n');
+    $('anActions').innerHTML = li(a.activity.topActions, 'k', 'n');
+    $('anAges').innerHTML = li(Object.keys(a.ages).map(k => ({ k: k, n: a.ages[k] })), 'k', 'n');
+    $('anVenues').innerHTML = li(a.venues, 'venue', 'guests');
+    $('anEvents').innerHTML = li(a.media.byEvent, 'event', 'count');
+    $('anUploaders').innerHTML = li(a.media.topUploaders, 'name', 'count');
+    $('anPending').innerHTML = '<tr><th>Name</th><th>Phone</th><th>Side</th></tr>' + a.notRegistered.map(g =>
+      '<tr><td>' + esc(g.name) + '</td><td>' + (g.phone ? '<a href="https://wa.me/' + esc(String(g.phone).replace(/\D/g, '')) + '" target="_blank">' + esc(g.phone) + '</a>' : '') + '</td><td>' + esc(g.side) + '</td></tr>').join('');
+  }
+
+  // ---------- Gifts ----------
+  let gifts = [], giftF = '', giftPeople = [];
+  async function loadGifts() {
+    gifts = await call('admin.gifts');
+    const tot = {};
+    gifts.forEach(g => { const c = g.Currency || 'NPR'; tot[c] = (tot[c] || 0) + (Number(g.Amount) || 0); });
+    const todo = gifts.filter(g => !g.ThankedAt).length;
+    $('giftTotals').textContent = gifts.length + ' gifts · ' + Object.keys(tot).map(c => c + ' ' + tot[c].toLocaleString()).join(' · ') + ' · ' + todo + ' to thank';
+    const list = gifts.filter(g => !giftF || (giftF === 'todo' ? !g.ThankedAt : !!g.ThankedAt));
+    $('giftTable').innerHTML = '<tr><th>From</th><th>Amount</th><th>Note</th><th>Thank you</th></tr>' + list.map(g => {
+      const acts = g.ThankedAt ? '✅ <small>' + esc(g.ThankedVia || '') + '</small>' : '<button class="btn ghost sm" data-goto="thanks">💌 Thank</button>';
+      return '<tr><td>' + esc(g.Name) + (g.Anon === 'TRUE' || g.Anon === true ? ' 🕶️' : '') + '<br><small>' + esc([g.Relation, g.Method, String(g.Timestamp).slice(0, 10)].filter(Boolean).join(' · ')) + '</small></td>' +
+        '<td>' + esc(g.Amount ? g.Currency + ' ' + g.Amount : '') + auditBadge(g) + '</td><td>' + esc(g.Note) +
+        (g.ProofFileId ? ' <a target="_blank" href="https://drive.google.com/file/d/' + esc(g.ProofFileId) + '/view">proof</a>' : '') +
+                (g.PhotoId ? ' <a target="_blank" href="https://drive.google.com/file/d/' + esc(g.PhotoId) + '/view">🧧 envelope</a>' : '') + '</td><td>' + acts + '</td></tr>';
+    }).join('');
+    auditProgress();
+    loadWhispers();
+  }
+  async function loadWhispers() {
+    const w = await call('admin.whispers');
+    $('whisperTable').innerHTML = '<tr><th>Message</th><th>Really from</th></tr>' + w.map(x =>
+      '<tr><td>' + esc(x.Text) + (x.DriveFileId ? ' <a target="_blank" href="https://drive.google.com/file/d/' + esc(x.DriveFileId) + '/view">🎥 media</a>' : '') + '</td>' +
+      '<td>' + esc(x.Name || 'Unknown') + '<br><small>' + esc([x.Side, String(x.Timestamp).slice(0, 16), x.Device].filter(Boolean).join(' · ')) + '</small></td></tr>').join('');
+  }
+  $('giftFilter').addEventListener('click', e => {
+    const b = e.target.closest('[data-f]'); if (!b) return;
+    giftF = b.dataset.f;
+    $('giftFilter').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    loadGifts();
+  });
+  $('giftTable').addEventListener('click', e => {
+    if (e.target.closest('[data-goto]')) document.querySelector('#tabs [data-tab="thanks"]').click();
+  });
+  $('addCash').addEventListener('click', async () => {
+    $('cashMsg').textContent = '';
+    $('cashDlg').showModal();
+    $('cashForm').name.focus();
+    if (!giftPeople.length) {
+      try { giftPeople = await call('admin.guests'); } catch (e) { giftPeople = []; }
+      $('cashNames').innerHTML = giftPeople.map(p => '<option value="' + esc(p.Name) + '">').join('');
+    }
+  });
+  $('cashForm').name.addEventListener('change', e => {
+    const f = $('cashForm'), p = giftPeople.find(x => x.Name === e.target.value);
+    if (p) { f.dataset.guestId = p.GuestId; f.relation.value = p.RelationTo || ''; if (!f.phone.value) f.phone.value = p.Phone || ''; }
+    else delete f.dataset.guestId;
+  });
+  // Envelope scanner: photo is kept in Drive as the audit trail; on-device OCR only pre-fills, admin confirms.
+  $('cashScan').addEventListener('change', async e => {
+    const file = e.target.files[0], f = $('cashForm'); e.target.value = '';
+    if (!file) return;
+    $('cashPrev').src = URL.createObjectURL(file); $('cashPrev').hidden = false;
+    f.dataset.photo = ''; $('cashMsg').textContent = '⏳ Saving photo…';
+    try { const r = await callUpload(file); f.dataset.photo = r; $('cashMsg').textContent = '📷 Photo saved · reading…'; } catch (err) { $('cashMsg').textContent = '⚠️ ' + err.message; }
+    try {
+      if (!window.Tesseract) await new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+      const { data } = await Tesseract.recognize(file, 'eng+nep');
+      const txt = data.text || '';
+      const amt = (txt.replace(/[,\s](?=\d{3}\b)/g, '').match(/(?:rs\.?|npr|रु\.?|\$|usd)?\s*(\d{3,7})/i) || [])[1];
+      if (amt && !f.amount.value) f.amount.value = amt;
+      if (/\$|usd/i.test(txt)) f.currency.value = 'USD';
+      const hit = giftPeople.find(p => p.Name && txt.toLowerCase().indexOf(String(p.Name).toLowerCase().split(' ')[0]) >= 0);
+      if (hit && !f.name.value) { f.name.value = hit.Name; f.name.dispatchEvent(new Event('change')); }
+      if (!f.note.value) f.note.value = txt.trim().slice(0, 300);
+      $('cashMsg').textContent = '✅ Pre-filled — please check name & amount.';
+    } catch (err) { $('cashMsg').textContent = '📷 Photo saved — type name & amount.'; }
+  });
+  $('cashForm').addEventListener('submit', async e => {
+    const f = $('cashForm');
+    if (e.submitter && e.submitter.value === 'cancel') { loadGifts(); return; }
+    e.preventDefault();
+    $('cashSave').disabled = true;
+    try {
+      await call('admin.saveCashGift', { guestId: f.dataset.guestId || '', name: f.name.value.trim(), relation: f.relation.value.trim(),
+        amount: f.amount.value, currency: f.currency.value.trim(), phone: f.phone.value.trim(), note: f.note.value.trim(), photoId: f.dataset.photo || '' });
+      $('cashMsg').textContent = '✅ Saved ' + f.name.value + (f.amount.value ? ' · ' + f.currency.value + ' ' + f.amount.value : '');
+      const cur = f.currency.value; f.reset(); f.currency.value = cur; delete f.dataset.guestId; delete f.dataset.photo; $('cashPrev').hidden = true; f.name.focus();
+    } catch (err) { $('cashMsg').textContent = err.message; }
+    $('cashSave').disabled = false;
+  });
+  $('exportGifts').addEventListener('click', () => {
+    const cols = ['Timestamp', 'Name', 'Relation', 'Side', 'Phone', 'Method', 'Currency', 'Amount', 'Note', 'Anon', 'ThankedAt', 'ThankedVia'];
+    const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const csv = '\ufeff' + [cols.join(',')].concat(gifts.map(g => cols.map(c => q(g[c])).join(','))).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'wedding-gifts.csv';
+    a.click();
+  });
+
+  // ---------- Invitations, screenshot proofs, logs ----------
+  async function loadInvites() {
+    const [inv, proofs, logs] = await Promise.all([call('admin.invites'), call('admin.proofs'), call('admin.logs')]);
+    const gName = id => (guests.filter(g => g.GuestId === id)[0] || {}).Name || id;
+    $('inviteTable').innerHTML = '<tr><th>Guest</th><th>Lang</th><th>Status</th><th>Requested</th><th>PDF</th><th></th></tr>' + inv.map(r =>
+      '<tr><td>' + esc(r.Name || gName(r.GuestId)) + '</td><td>' + esc(r.Lang) + '</td><td>' + esc(r.Status) + '</td><td>' + esc(String(r.RequestedAt).slice(0, 16)) + '</td>' +
+      '<td>' + (r.DriveFileId ? '<a target="_blank" href="https://drive.google.com/file/d/' + esc(r.DriveFileId) + '/view">open</a>' : '') + '</td>' +
+      '<td><button class="btn sm" data-inv-ok="' + esc(r.InviteId) + '">' + (r.Status === 'Approved' ? 'Regenerate' : 'Approve') + '</button> ' +
+      (r.Status !== 'Rejected' ? '<button class="btn ghost sm" data-inv-no="' + esc(r.InviteId) + '">Reject</button>' : '') + '</td></tr>').join('');
+    $('proofTable').innerHTML = '<tr><th></th><th>Who</th><th>Game</th><th>Points</th><th>Status</th><th></th></tr>' + proofs.map(p =>
+      '<tr><td><a target="_blank" href="https://drive.google.com/file/d/' + esc(p.DriveFileId) + '/view"><img loading="lazy" style="width:64px;height:64px;object-fit:cover;border-radius:8px" src="https://drive.google.com/thumbnail?id=' + esc(p.DriveFileId) + '&sz=w200"></a></td>' +
+      '<td>' + esc(p.Name) + ' <small>' + esc(p.Side) + '</small></td><td>' + esc(p.GameId) + '</td><td>' + esc(p.Points) + '</td><td>' + esc(p.Status) + '</td>' +
+      '<td><button class="btn sm" data-proof="' + esc(p.ProofId) + '" data-s="Approved">Approve</button> <button class="btn ghost sm" data-proof="' + esc(p.ProofId) + '" data-s="Rejected">Reject</button></td></tr>').join('');
+    $('logLinks').innerHTML = '<a class="btn sm" target="_blank" href="' + esc(logs.guest) + '">📒 Guest activity log</a> <a class="btn ghost sm" target="_blank" href="' + esc(logs.admin) + '">🔐 Admin activity log</a>';
+  }
+  $('panel-invites').addEventListener('click', async e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    b.disabled = true;
+    try {
+      if (b.dataset.invOk) await call('admin.approveInvite', { inviteId: b.dataset.invOk });
+      else if (b.dataset.invNo) await call('admin.rejectInvite', { inviteId: b.dataset.invNo });
+      else if (b.dataset.proof) await call('admin.moderateProof', { proofId: b.dataset.proof, status: b.dataset.s });
+      loadInvites();
+    } catch (err) { b.disabled = false; }
+  });
+
+  // ---------- Dashboard (real-time via polling) ----------
+  async function refreshStats() {
+    let s;
+    try { s = await API.call('admin.stats'); } catch (e) { return; }
+    $('updatedAt').textContent = new Date(s.updatedAt).toLocaleTimeString();
+    const card = (n, l) => '<div class="card stat"><div class="n">' + esc(n) + '</div><div class="l">' + esc(l) + '</div></div>';
+    $('stats').innerHTML = [
+      card(s.invited, 'Invitations (' + s.invitedPeople + ' people)'),
+      card(s.registered, 'Registered'),
+      card(s.attendingPeople, 'Attending people (' + s.attendingGuests + ' invites)'),
+      card(s.maybe, 'Maybe'),
+      card(s.notAttending, 'Not attending'),
+      card(s.pending, 'Not registered yet'),
+      card(s.brideSide + ' / ' + s.groomSide, 'Bride side / Groom side'),
+      card(s.checkedIn, 'Checked in')
+    ].join('');
+    $('perEvent').innerHTML = '<tr><th>Event</th><th>Coming (people)</th><th>Households</th><th>Maybe</th><th>No</th><th>No reply</th><th>By side / tag</th></tr>' +
+      s.perEvent.map(e => '<tr><td>' + esc(e.nameEn || e.eventId) + '<div class="muted">' + esc(e.nameNe || '') + '</div></td><td><b class="big-num">' + e.yes + '</b></td><td>' + (e.households || 0) +
+        '</td><td>' + e.maybe + '</td><td>' + e.no + '</td><td>' + (e.noReply || 0) + '</td><td><small>' +
+        esc(Object.entries(Object.assign({}, e.bySide, e.byTag)).map(([k, v]) => k + ': ' + v).join(' · ')) + '</small></td></tr>').join('');
+    $('meals').innerHTML = Object.keys(s.meals).map(k => '<tr><td>' + esc(k) + '</td><td>' + s.meals[k] + '</td></tr>').join('') || '<tr><td>—</td></tr>';
+    $('bands').innerHTML = [['green', 'ID verified'], ['yellow', 'Self-declared (check ID)'], ['red', 'Under age'], ['blue', 'Non-drinker']]
+      .map(b => '<tr><td><span class="band ' + b[0] + '">' + b[1] + '</span></td><td>' + s.bands[b[0]] + '</td></tr>').join('');
+    const a = s.accommodation;
+    $('accStats').innerHTML = '<tr><td>Eligible guests</td><td>' + a.eligible + '</td></tr><tr><td>Requested</td><td>' + a.requested +
+      '</td></tr><tr><td>Assigned</td><td>' + a.assigned + '</td></tr><tr><td>People needing rooms</td><td>' + a.people +
+      '</td></tr><tr><td>Total capacity</td><td>' + a.capacity + '</td></tr>';
+  }
+
+  $('exportCsv').addEventListener('click', async () => {
+    const rows = await call('admin.guests');
+    if (!rows.length) return;
+    const cols = Object.keys(rows[0]);
+    const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => '"' + String(r[c] == null ? '' : r[c]).replace(/"/g, '""') + '"').join(','))).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' }));
+    a.download = 'guests.csv';
+    a.click();
+  });
+
+  // ---------- Guests ----------
+  async function loadGuests() {
+    guests = await call('admin.guests');
+    renderGuests();
+  }
+
+  const tagsOf = g => String(g.Tags || '').split(',').map(t => t.trim()).filter(String);
+  const magicUrl = g => g.InviteCode ? siteRoot() + 'index.html?c=' + encodeURIComponent(g.InviteCode) : inviteUrl(g.GuestId);
+  function renderGuests() {
+    const q = ($('guestSearch').value || '').toLowerCase();
+    const tag = $('guestTag').value, sortBy = $('guestSort').value;
+    const all = new Set(); guests.forEach(g => tagsOf(g).forEach(t => all.add(t)));
+    const cur = $('guestTag').value;
+    $('guestTag').innerHTML = '<option value="">All tags</option>' + [...all].sort().map(t => '<option' + (t === cur ? ' selected' : '') + '>' + esc(t) + '</option>').join('');
+    const list = guests.filter(g => (!q || JSON.stringify(g).toLowerCase().indexOf(q) >= 0) && (!tag || tagsOf(g).indexOf(tag) >= 0))
+      .sort((a, b) => {
+        const x = a[sortBy], y = b[sortBy];
+        if (sortBy === 'AttendingCount') return (Number(y) || 0) - (Number(x) || 0);
+        if (sortBy === 'RegisteredAt') return String(y || '').localeCompare(String(x || ''));
+        return String(x || '').localeCompare(String(y || ''));
+      });
+    $('guestCount').textContent = list.length + ' households · ' + list.reduce((t, g) => t + (Number(g.AttendingCount) || 0), 0) + ' people coming';
+    $('guestTable').innerHTML = '<tr><th>Guest</th><th>Side / Relation</th><th>Status</th><th>People</th><th>Age / Band</th><th>Accommodation</th><th>Checked in</th><th>Actions</th></tr>' +
+      list.map(g => {
+        const wa = g.Phone ? 'https://wa.me/' + String(g.Phone).replace(/\D/g, '') + '?text=' + encodeURIComponent('Namaste ' + g.Name + ' 🙏 Your wedding invitation (no password needed): ' + magicUrl(g) + (g.InviteCode ? '  Code: ' + g.InviteCode : '') + '  Tip: Add it to your Home Screen for the event days.') : '';
+        return '<tr data-id="' + esc(g.GuestId) + '">' +
+          '<td><a href="#" data-act="open"><b>' + esc(g.Name) + '</b></a><div class="muted">' + esc(g.NameNe || '') + ' · ' + esc(g.InviteCode || g.GuestId) + '</div>' +
+          tagsOf(g).map(t => '<span class="tag">' + esc(t) + '</span>').join('') + '</td>' +
+          '<td>' + esc(g.Side) + '<div class="muted">' + esc(g.Relation || '') + '</div></td>' +
+          '<td>' + esc(yes(g.Registered) ? g.Status : 'Not registered') + (yes(g.InviteOpened) ? ' 👀' : '') + '</td>' +
+          '<td>' + esc(g.AttendingCount || 0) + ' / ' + esc(g.AdmitCount) + '</td>' +
+          '<td>' + esc(g.Age) + ' <span class="band ' + esc(g.Band) + '">' + esc(g.Band) + '</span><br>' +
+          '<label class="check"><input type="checkbox" data-act="verify"' + (yes(g.AgeVerified) ? ' checked' : '') + '> ID verified</label></td>' +
+          '<td><label class="check"><input type="checkbox" data-act="acc"' + (yes(g.AccommodationEligible) ? ' checked' : '') + '> Offer</label></td>' +
+          '<td>' + (yes(g.CheckedIn) ? '✅' : '<button class="btn sm" data-act="checkin">Check in</button>') + '</td>' +
+          '<td><button class="btn ghost sm" data-act="open">Open</button> <button class="btn ghost sm" data-act="edit">Edit</button> <button class="btn ghost sm" data-act="copy">Copy link</button>' +
+          (wa ? ' <a class="btn alt sm" target="_blank" rel="noopener" href="' + esc(wa) + '">WhatsApp</a>' : '') + '</td></tr>';
+      }).join('');
+  }
+
+  $('guestSearch').addEventListener('input', renderGuests);
+  $('guestTag').addEventListener('change', renderGuests);
+  $('guestSort').addEventListener('change', renderGuests);
+  $('genCodes').addEventListener('click', async () => { const n = await call('admin.genCodes', {}); msg(n + ' codes created', 'ok'); loadGuests(); });
+
+  // ---------- Household page (CRUD + relatives) ----------
+  let hh = null;
+  async function openHousehold(id) {
+    $('hhBody').innerHTML = '<p class="muted">Loading…</p>';
+    if (!$('hhDlg').open) $('hhDlg').showModal();
+    hh = await call('admin.household', { guestId: id });
+    const g = hh.guest, ev = {};
+    ((window.__events) || []).forEach(e => ev[e.EventId] = e.NameEn);
+    const f = (k, l, t) => '<label>' + l + '<input name="' + k + '" type="' + (t || 'text') + '" value="' + esc(g[k] == null ? '' : g[k]) + '"></label>';
+    $('hhBody').innerHTML =
+      '<div class="row-between"><h3>' + esc(g.Name) + '</h3><button class="btn ghost sm" data-hh="close">✕</button></div>' +
+      '<p class="muted">' + esc([g.Side, g.Relation, g.Status, (g.AttendingCount || 0) + '/' + g.AdmitCount + ' coming', hh.uploads + ' uploads'].filter(Boolean).join(' · ')) + '</p>' +
+      esc(g.InviteCode || '') + '</b></p>' +
+            '<p>Link: <b>' + (yes(g.LinkRevoked) ? '⛔ Turned off' : (g.LinkExpires && new Date(g.LinkExpires) < new Date() ? '⌛ Expired' : '✅ Active')) + '</b>' + (g.LinkExpires ? ' · expires ' + esc(String(g.LinkExpires).slice(0, 10)) : '') + '<br>' +
+            '<button class="btn ghost sm" data-hh="revoke">' + (yes(g.LinkRevoked) ? 'Turn link back on' : 'Turn link off') + '</button> ' +
+            '<button class="btn ghost sm" data-hh="newcode">New link (old stops working)</button> ' +
+            '<label class="check">Expires <input type="date" data-hh-exp value="' + esc(String(g.LinkExpires || '').slice(0, 10)) + '"></label> <button class="btn ghost sm" data-hh="expire">Save expiry</button></p>' +
+      '<details><summary>✏️ Edit household</summary><form id="hhForm" class="grid">' +
+        f('Name', 'Name') + f('NameNe', 'Name (Nepali)') + f('Family', 'Family') + f('Relation', 'Relation') + f('Tags', 'Tags') + f('Phone', 'Phone', 'tel') +
+        f('Email', 'Email', 'email') + f('AdmitCount', 'Admit count', 'number') + f('Table', 'Table') + f('InviteCode', 'Invite code') + f('Notes', 'Notes') +
+        '<p><button class="btn">Save</button></p></form></details>' +
+      '<h4>👪 Relatives in this household</h4><div class="table-wrap"><table>' +
+        '<tr><th>Name</th><th>Relation</th><th>Coming</th><th></th></tr>' +
+        hh.members.map(m => '<tr><td>' + esc(m.Name) + (yes(m.IsPrimary) ? ' ⭐' : '') + '</td><td>' + esc([m.Relation, m.RelationTo].filter(Boolean).join(' · ')) + '</td><td>' + (yes(m.Attending) ? '✅' : '—') +
+          '</td><td><button class="btn ghost sm" data-hh="delm" data-id="' + esc(m.MemberId) + '">Remove</button></td></tr>').join('') +
+      '</table></div>' +
+      '<form id="hhAdd" class="row"><input name="Name" placeholder="Add relative name" required><input name="Relation" placeholder="Relation"><button class="btn sm">Add</button></form>' +
+      (hh.family.length ? '<h4>Same family (other households)</h4><p>' + hh.family.map(x => '<a href="#" class="tag" data-hh="go" data-id="' + esc(x.GuestId) + '">' + esc(x.Name) + '</a>').join(' ') + '</p>' : '') +
+      '<h4>📅 Events</h4><p>' + (hh.rsvps.map(r => esc((ev[r.EventId] || r.EventId) + ': ' + r.Response + ' (' + (r.Count || 0) + ')')).join('<br>') || '<span class="muted">No RSVP yet</span>') + '</p>' +
+      (hh.gifts.length ? '<h4>🎁 Gifts</h4><p>' + hh.gifts.map(x => esc(x.Method + ' ' + (x.Amount ? x.Currency + ' ' + x.Amount : ''))).join('<br>') + '</p>' : '') +
+      '<p><button class="btn ghost sm danger" data-hh="del">Delete household</button></p>';
+  }
+  $('hhBody').addEventListener('click', async e => {
+    const b = e.target.closest('[data-hh]'); if (!b) return;
+    e.preventDefault();
+    const a = b.dataset.hh, g = hh.guest;
+    if (a === 'close') { $('hhDlg').close(); return; }
+    if (a === 'copy') { await navigator.clipboard.writeText(magicUrl(g)); b.textContent = '✅ Copied'; return; }
+    if (a === 'go') { openHousehold(b.dataset.id); return; }
+    if (a === 'revoke') { await call('admin.linkControl', { guestId: g.GuestId, revoked: !yes(g.LinkRevoked) }); openHousehold(g.GuestId); loadGuests(); return; }
+    if (a === 'newcode' && confirm('Create a new link? The old link will stop working.')) { await call('admin.linkControl', { guestId: g.GuestId, newCode: true }); openHousehold(g.GuestId); loadGuests(); return; }
+    if (a === 'expire') { const v = $('hhBody').querySelector('[data-hh-exp]').value; await call('admin.linkControl', { guestId: g.GuestId, expires: v ? v + 'T23:59:59' : '' }); openHousehold(g.GuestId); return; }
+    if (a === 'delm' && confirm('Remove this relative?')) { await call('admin.deleteMember', { memberId: b.dataset.id }); openHousehold(g.GuestId); }
+    if (a === 'del' && confirm('Delete ' + g.Name + ' and relatives? (kept in Archive)')) { await call('admin.deleteGuest', { guestId: g.GuestId }); $('hhDlg').close(); loadGuests(); }
+  });
+  $('hhBody').addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target).entries());
+    if (e.target.id === 'hhForm') { d.GuestId = hh.guest.GuestId; await call('admin.saveGuest', d); msg('Saved', 'ok'); loadGuests(); }
+    else { d.GuestId = hh.guest.GuestId; await call('admin.saveMember', d); }
+    openHousehold(hh.guest.GuestId);
+  });
+
+  $('guestTable').addEventListener('click', async e => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const id = el.closest('tr').dataset.id;
+    const g = guests.find(x => x.GuestId === id);
+    const act = el.dataset.act;
+    if (act === 'verify') await call('admin.verifyAge', { guestId: id, value: el.checked });
+    else if (act === 'acc') await call('admin.setAccommodationEligible', { guestId: id, value: el.checked });
+    else if (act === 'checkin') await call('admin.checkIn', { guestId: id });
+    else if (act === 'copy') { await navigator.clipboard.writeText(magicUrl(g)); msg('Link copied', 'ok'); return; }
+    else if (act === 'open') { e.preventDefault(); openHousehold(id); return; }
+    else if (act === 'edit') { fillGuestForm(g); return; }
+    else return;
+    loadGuests();
+  });
+
+  function fillGuestForm(g) {
+    const f = $('guestForm');
+    ['GuestId', 'Name', 'NameNe', 'Family', 'Side', 'Relation', 'RelationNe', 'Groups', 'Tags', 'InviteCode', 'Phone', 'Email', 'AdmitCount', 'Table']
+      .forEach(k => f[k].value = g[k] == null ? '' : g[k]);
+    f.AccommodationEligible.checked = yes(g.AccommodationEligible);
+    f.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  $('guestForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target).entries());
+    d.AccommodationEligible = e.target.AccommodationEligible.checked ? 'TRUE' : 'FALSE';
+    await call('admin.saveGuest', d);
+    e.target.reset();
+    e.target.GuestId.value = '';
+    msg('Guest saved', 'ok');
+    loadGuests();
+  });
+
+  $('csvFile').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const rows = parseCsv(await file.text());
+    if (!rows.length) { msg('No rows found', 'err'); return; }
+    const n = await call('admin.importGuests', { rows: rows });
+    msg('Imported ' + n + ' guests', 'ok');
+    e.target.value = '';
+    loadGuests();
+  });
+
+  function parseCsv(text) {
+    const lines = text.replace(/^\ufeff/, '').split(/\r?\n/).filter(l => l.trim());
+    const split = l => {
+      const out = []; let cur = '', q = false;
+      for (let i = 0; i < l.length; i++) {
+        const c = l[i];
+        if (q) { if (c === '"' && l[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+        else if (c === '"') q = true; else if (c === ',') { out.push(cur); cur = ''; } else cur += c;
+      }
+      out.push(cur);
+      return out.map(x => x.trim());
+    };
+    const head = split(lines.shift() || '');
+    return lines.map(l => { const v = split(l); const o = {}; head.forEach((h, i) => o[h] = v[i] || ''); return o; }).filter(o => o.Name);
+  }
+
+  // ---------- Accommodation ----------
+  async function loadRooms() {
+    const r = await call('admin.rooms');
+    rooms = r.rooms; requests = r.requests;
+    if (!guests.length) guests = await call('admin.guests');
+    const used = {};
+    requests.filter(q => q.RoomId).forEach(q => used[q.RoomId] = (used[q.RoomId] || 0) + Number(q.People || 0));
+    $('roomTable').innerHTML = '<tr><th>Room</th><th>Location</th><th>Capacity</th><th>Assigned people</th><th>Dates</th><th>Notes</th></tr>' +
+      rooms.map(x => '<tr><td>' + esc(x.Name) + '</td><td>' + esc(x.Location) + '</td><td>' + esc(x.Capacity) + '</td><td>' + (used[x.RoomId] || 0) +
+        '</td><td>' + esc(String(x.CheckIn).slice(0, 10)) + ' → ' + esc(String(x.CheckOut).slice(0, 10)) + '</td><td>' + esc(x.Notes) + '</td></tr>').join('');
+    const roomOpts = sel => '<option value="">— none —</option>' + rooms.map(x =>
+      '<option value="' + esc(x.RoomId) + '"' + (x.RoomId === sel ? ' selected' : '') + '>' + esc(x.Name) + ' (' + esc(x.Capacity) + ')</option>').join('');
+    $('reqTable').innerHTML = '<tr><th>Guest</th><th>Nights</th><th>People</th><th>Needs</th><th>Status</th><th>Assign room</th></tr>' +
+      requests.map(q => {
+        const g = guests.find(x => x.GuestId === q.GuestId) || {};
+        return '<tr data-req="' + esc(q.RequestId) + '"><td>' + esc(g.Name || q.GuestId) + '</td><td>' + esc(q.Nights) + '</td><td>' + esc(q.People) +
+          '</td><td>' + esc(q.Needs) + '</td><td>' + esc(q.Status) + '</td><td><select data-assign>' + roomOpts(q.RoomId) + '</select></td></tr>';
+      }).join('');
+  }
+
+  $('reqTable').addEventListener('change', async e => {
+    if (!e.target.matches('[data-assign]')) return;
+    await call('admin.assignRoom', { requestId: e.target.closest('tr').dataset.req, roomId: e.target.value });
+    msg('Room updated', 'ok');
+    loadRooms();
+  });
+
+  $('roomForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    await call('admin.saveRoom', Object.fromEntries(new FormData(e.target).entries()));
+    e.target.reset();
+    msg('Room saved', 'ok');
+    loadRooms();
+  });
+
+  // ---------- Live ----------
+  $('liveForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    await call('admin.postLive', Object.fromEntries(new FormData(e.target).entries()));
+    msg('Live update posted', 'ok');
+    e.target.reset();
+  });
+  $('clearLive').addEventListener('click', async () => { await call('admin.postLive', {}); msg('Banner cleared', 'ok'); });
+
+  // ---------- Pocket Pandit ----------
+  let rituals = [];
+  async function loadRituals() { rituals = await call('admin.rituals'); renderRituals(); }
+  function renderRituals() {
+    $('ritList').innerHTML = rituals.map(r =>
+      '<div class="rit-row ' + esc(r.Status || 'upcoming') + '" data-r="' + esc(r.RitualId) + '"><span class="rit-ico">' + esc(r.Icon || '✦') + '</span>' +
+      '<div class="rit-txt"><b>' + esc(r.NameEn) + '</b> <span class="muted">' + esc(r.NameNe) + '</span><div class="muted">' + esc(r.MeaningEn) + '</div></div>' +
+      '<div class="btn-row"><button class="btn sm" data-a="now">' + (r.Status === 'now' ? '● Live' : 'Now') + '</button>' +
+      '<button class="btn ghost sm" data-a="done">✓</button><button class="btn ghost sm" data-a="edit">✎</button></div></div>').join('') || '<p class="muted">No rituals yet.</p>';
+  }
+  $('ritList').addEventListener('click', async e => {
+    const b = e.target.closest('[data-a]'); if (!b) return;
+    const id = b.closest('[data-r]').dataset.r, r = rituals.find(x => x.RitualId === id);
+    if (b.dataset.a === 'edit') return editRitual(r);
+    await call('admin.ritualNow', { ritualId: id, status: b.dataset.a === 'now' && r.Status === 'now' ? 'upcoming' : b.dataset.a });
+    loadRituals();
+  });
+  async function editRitual(r) {
+    r = r || { Order: rituals.length + 1, Icon: '🪔', Status: 'upcoming', Visible: 'TRUE' };
+    const f = [['Icon', 'Icon (emoji)'], ['NameEn', 'Name (English)'], ['NameNe', 'Name (नेपाली)'], ['MeaningEn', 'Meaning — 2 sentences (English)'], ['MeaningNe', 'Meaning (नेपाली)'], ['Order', 'Order']];
+    for (const [k, l] of f) { const v = prompt(l, r[k] || ''); if (v == null) return; r[k] = v; }
+    await call('admin.saveRitual', r); loadRituals();
+  }
+  $('ritAdd').addEventListener('click', () => editRitual());
+
+  // ---------- Door check-in (offline-first, see js/door.js) ----------
+  const doorCall = (a, d) => API.call(a, d);
+  function doorStatus() {
+    const l = Door.list(), n = Door.pending().length;
+    const t = (navigator.onLine ? '' : '📴 Offline — ') + (l.savedAt ? l.guests.length + ' households saved ' + new Date(l.savedAt).toLocaleTimeString() : 'List not downloaded yet') +
+      (n ? ' · ' + n + ' check-in(s) waiting to sync' : ' · all synced');
+    App.msg($('doorStatus'), t, n || !navigator.onLine ? 'warn' : 'ok');
+  }
+  async function loadDoor(force) {
+    if (force === true || !Door.list().savedAt) {
+      try { Door.save(await call('admin.guests'), await call('admin.people').catch(() => [])); } catch (e) { /* offline: keep saved list */ }
+    }
+    await Door.sync(doorCall);
+    doorStatus(); renderDoor();
+    $('doorScan').hidden = !('BarcodeDetector' in window);
+  }
+  function renderDoor() {
+    const rows = Door.search($('doorSearch').value);
+    $('doorResult').innerHTML = rows.map(r => '<div class="door-row swipe-row' + (r.in ? ' is-in' : '') + '" data-g="' + esc(r.guestId) + '" data-m="' + esc(r.memberId) + '" data-band="' + esc(r.band || '') + '" data-tel="' + esc(String(r.phone || '').replace(/[^\d+]/g, '')) + '" data-name="' + esc(r.name) + '" data-table="' + esc(r.table || '') + '"><div><b>' + esc(r.name) + '</b> ' +
+      (r.band ? '<span class="band ' + esc(r.band) + '">' + esc(r.band) + '</span>' : '') + (r.pending ? ' <span class="pill sync-pending">⏳ Sync pending</span>' : '') + '<div class="muted">' + esc([r.nameNe, r.sub, r.table ? 'Table ' + r.table : ''].filter(Boolean).join(' · ')) + '</div></div>' +
+      (r.in ? '<span class="big-num">✅</span>' : '<button class="btn" data-door-in>Check in</button>') + '</div>').join('') ||
+      ($('doorSearch').value.trim().length >= 2 ? '<p class="muted">No match.</p>' : '');
+  }
+  function doorCheckIn(ref) {
+    const p = Door.checkIn(ref);
+    if (!p) { msg('Not on the saved list: ' + (ref.guestId || ''), 'err'); return; }
+    if (navigator.vibrate) navigator.vibrate(60);
+    flashBand(ref.band || (Door.list().people.filter(x => x.MemberId === ref.memberId)[0] || {}).Band);
+    showUndo(ref);
+    renderDoor(); doorStatus();
+    Door.sync(doorCall).then(doorStatus);
+  }
+  // 8-second undo for a mistaken tap/swipe. Unsynced check-ins are just dropped from the queue.
+  function showUndo(ref) {
+    const box = $('doorUndo'); if (!box) return;
+    const who = (Door.list().people.filter(x => x.MemberId === ref.memberId)[0] || Door.list().guests.filter(x => x.GuestId === ref.guestId)[0] || {}).Name || '';
+    $('doorUndoText').textContent = '✅ ' + who + ' checked in';
+    box.hidden = false; box._ref = ref;
+    clearTimeout(showUndo.t); showUndo.t = setTimeout(() => { box.hidden = true; box._ref = null; }, 8000);
+  }
+  if ($('doorUndoBtn')) $('doorUndoBtn').addEventListener('click', async () => {
+    const box = $('doorUndo'), ref = box._ref; if (!ref) return;
+    box.hidden = true; box._ref = null;
+    const where = Door.undo(ref);
+    renderDoor(); doorStatus();
+    if (where === 'server') {
+      try { await call('admin.undoCheckIn', { guestId: ref.guestId, memberId: ref.memberId }); } catch (e) { msg('Undo saved here; server will need a manual fix: ' + e.message, 'err'); return; }
+    }
+    msg('Check-in undone', 'ok');
+  });
+  $('doorSearch').addEventListener('input', renderDoor);
+  $('doorResult').addEventListener('click', e => {
+    const b = e.target.closest('[data-door-in]'); if (!b) return;
+    const row = b.closest('[data-g]');
+    doorCheckIn({ guestId: row.dataset.g, memberId: row.dataset.m, band: row.dataset.band });
+  });
+  $('doorSync').addEventListener('click', () => Door.sync(doorCall).then(doorStatus));
+  $('doorRefresh').addEventListener('click', () => loadDoor(true));
+
+  // Full-screen colour flash: green = 18+ band, red = under 18 / unknown. Glanceable from arm's length.
+  function flashBand(band) {
+    const f = $('doorFlash'); if (!f) return;
+    const adult = band === 'green' || band === 'yellow';
+    f.className = 'door-flash ' + (band === 'blue' ? 'blue' : adult ? 'adult' : 'minor');
+    f.textContent = band === 'blue' ? '✅ Checked in · non-drinker' : adult ? '✅ Checked in · 18+ band' : '✅ Checked in · NO alcohol (under 18 / unverified)';
+    f.hidden = false; clearTimeout(flashBand.t);
+    flashBand.t = setTimeout(() => { f.hidden = true; }, 1300);
+  }
+
+  // Swipe right = check in, swipe left = call, long press = change table. Buttons still work for accessibility.
+  App.swipe($('doorResult'), '.swipe-row', {
+    right: row => { if (!row.classList.contains('is-in')) doorCheckIn({ guestId: row.dataset.g, memberId: row.dataset.m, band: row.dataset.band }); },
+    left: row => { if (row.dataset.tel) location.href = 'tel:' + row.dataset.tel; else msg('No phone number saved for ' + row.dataset.name, 'err'); },
+    hold: row => {
+      $('tableWho').textContent = '🪑 Table for ' + row.dataset.name;
+      $('tableForm').table.value = row.dataset.table; $('tableForm').dataset.g = row.dataset.g;
+      $('tableDlg').showModal(); $('tableForm').table.focus();
+    }
+  });
+  $('tableDlg').addEventListener('close', async () => {
+    if ($('tableDlg').returnValue !== 'save') return;
+    const g = $('tableForm').dataset.g, t = $('tableForm').table.value.trim();
+    Door.setTable(g, t); renderDoor();
+    try { await call('admin.setTable', { guestId: g, table: t }); msg('Table saved', 'ok'); } catch (e) { }
+  });
+
+  // ---------- Phones down (freeze games / uploads / leaderboard) ----------
+  async function loadFreeze() {
+    try { const c = await API.call('getConfig', {}, { fresh: true }); showFreeze(c.freeze || {}); renderWins(c['freeze.windows'] || ''); } catch (e) { }
+  }
+  // Scheduled windows: stored as "startISO>endISO;..."; edited as datetime-local pairs.
+  const toLocal = iso => { const d = new Date(iso); if (isNaN(d)) return ''; d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+  function winRow(a, b) {
+    return '<div class="btn-row freeze-win"><input type="datetime-local" class="fw-a" value="' + esc(a) + '" aria-label="Start"> → ' +
+      '<input type="datetime-local" class="fw-b" value="' + esc(b) + '" aria-label="End"><button class="btn ghost" type="button" data-del-win aria-label="Remove window">✕</button></div>';
+  }
+  function renderWins(v) {
+    $('freezeWins').innerHTML = String(v || '').split(';').filter(w => w.trim()).map(w => { const p = w.split('>'); return winRow(toLocal(p[0]), toLocal(p[1])); }).join('');
+  }
+  $('freezeAddWin').addEventListener('click', () => $('freezeWins').insertAdjacentHTML('beforeend', winRow('', '')));
+  $('freezeWins').addEventListener('click', e => { const b = e.target.closest('[data-del-win]'); if (b) b.parentNode.remove(); });
+  $('freezeSaveWins').addEventListener('click', async () => {
+    const rows = Array.from($('freezeWins').querySelectorAll('.freeze-win'));
+    const bad = rows.find(r => !r.querySelector('.fw-a').value || !r.querySelector('.fw-b').value || new Date(r.querySelector('.fw-a').value) >= new Date(r.querySelector('.fw-b').value));
+    if (bad) { bad.classList.add('shake'); setTimeout(() => bad.classList.remove('shake'), 500); msg('Each window needs a start before its end', 'err'); return; }
+    const v = rows.map(r => new Date(r.querySelector('.fw-a').value).toISOString() + '>' + new Date(r.querySelector('.fw-b').value).toISOString()).join(';');
+    showFreeze(await call('admin.freeze', { windows: v }));
+    msg('Schedule saved (' + rows.length + ' window' + (rows.length === 1 ? '' : 's') + ')', 'ok');
+  });
+  function showFreeze(f) {
+    $('freezeState').textContent = f.on ? '📵 Frozen' + (f.until ? ' until ' + new Date(f.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '') : '▶️ Open';
+    $('freezeState').classList.toggle('warn', !!f.on);
+  }
+  $('freezeOn').addEventListener('click', async () => {
+    const m = Number($('freezeFor').value);
+    showFreeze(await call('admin.freeze', { on: true, until: m ? new Date(Date.now() + m * 60000).toISOString() : '', messageEn: $('freezeEn').value, messageNe: $('freezeNe').value }));
+    msg('Phones down — guests see the banner within a minute.', 'ok');
+  });
+  $('freezeOff').addEventListener('click', async () => { showFreeze(await call('admin.freeze', { on: false })); msg('Games and uploads reopened.', 'ok'); });
+
+  // ---------- Emergency blast builder (copy/paste; nothing is sent from here) ----------
+  $('blastBuild').addEventListener('click', async () => {
+    const r = await call('admin.blastList', { side: $('blastSide').value });
+    $('blastCount').textContent = r.count + ' people not checked in have a phone number.';
+    $('blastPhones').value = r.phones; $('blastPhones').hidden = !r.count; $('blastCopy').hidden = !r.count;
+  });
+  $('blastCard').addEventListener('click', async e => {
+    const b = e.target.closest('[data-copy]'); if (!b) return;
+    const v = $(b.dataset.copy).value;
+    if (!v.trim()) { msg('Nothing to copy yet', 'err'); return; }
+    try { await navigator.clipboard.writeText(v); } catch (x) { $(b.dataset.copy).select(); document.execCommand('copy'); }
+    const old = b.textContent; b.textContent = '✅ Copied'; b.classList.add('pop'); setTimeout(() => { b.textContent = old; b.classList.remove('pop'); }, 1400);
+  });
+
+  // ---------- Salami audit mode (Tinder-style reconciliation) ----------
+  function auditBadge(g) {
+    return g.AuditStatus === 'Verified' ? ' <span class="pill audit-ok">✓ counted</span>' : g.AuditStatus === 'Flagged' ? ' <span class="pill audit-bad" title="' + esc(g.AuditNote || '') + '">⚠ check</span>' : '';
+  }
+  let deck = [];
+  function auditProgress() {
+    const cash = gifts.filter(g => g.Amount), done = cash.filter(g => g.AuditStatus).length, bad = cash.filter(g => g.AuditStatus === 'Flagged').length;
+    $('auditProgress').textContent = done + ' / ' + cash.length + ' envelopes counted' + (bad ? ' · ' + bad + ' flagged' : '');
+    auditSummary(cash);
+  }
+  // Totals per currency: logged vs verified vs flagged vs still pending.
+  function auditSummary(cash) {
+    const box = $('auditSummary'); if (!box) return;
+    const t = {};
+    cash.forEach(g => {
+      const c = g.Currency || '', a = Number(g.Amount) || 0, r = t[c] = t[c] || { all: 0, ok: 0, bad: 0, wait: 0 };
+      r.all += a; if (g.AuditStatus === 'Verified') r.ok += a; else if (g.AuditStatus === 'Flagged') r.bad += a; else r.wait += a;
+    });
+    const f = n => Number(n).toLocaleString();
+    box.innerHTML = Object.keys(t).map(c => '<div class="audit-sum-row"><b>' + esc(c || '—') + ' ' + f(t[c].all) + '</b>' +
+      '<span class="pill audit-ok">✓ ' + f(t[c].ok) + '</span><span class="pill audit-bad">⚠ ' + f(t[c].bad) + '</span><span class="pill">⏳ ' + f(t[c].wait) + '</span></div>').join('');
+  }
+  $('auditExport').addEventListener('click', () => {
+    const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const rows = [['GiftId', 'Name', 'Amount', 'Currency', 'EnteredBy', 'AuditStatus', 'AuditedAt', 'AuditedBy', 'AuditNote']]
+      .concat(gifts.filter(g => g.Amount).map(g => [g.GiftId, g.Name, g.Amount, g.Currency, g.EnteredBy, g.AuditStatus || 'Pending', g.AuditedAt, g.AuditedBy, g.AuditNote]));
+    const blob = new Blob(['\ufeff' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'salami-audit.csv'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+  function renderDeck() {
+    auditProgress();
+    const g = deck[0], box = $('auditDeck');
+    $('auditActions').hidden = !g;
+    if (!g) { box.innerHTML = '<div class="audit-done">🎉 All envelopes reconciled</div>'; return; }
+    const img = g.PhotoId ? '<img alt="Envelope photo" loading="eager" src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(g.PhotoId) + '&sz=w800">' : '<div class="audit-nophoto">🧧 No photo</div>';
+    box.innerHTML = '<article class="audit-card-item swipe-row" data-id="' + esc(g.GiftId) + '">' + img +
+      '<div class="audit-meta"><div class="audit-amt">' + esc((g.Currency || '') + ' ' + Number(g.Amount).toLocaleString()) + '</div><b>' + esc(g.Name) + '</b><div class="muted">' + esc([g.Relation, g.EnteredBy && 'logged by ' + g.EnteredBy].filter(Boolean).join(' · ')) + '</div></div>' +
+      '<span class="stamp yes">MATCH</span><span class="stamp no">FLAG</span></article>' +
+      (deck[1] ? '<div class="audit-under"></div>' : '');
+  }
+  async function auditDecide(status) {
+    const g = deck[0]; if (!g) return;
+    if (status === 'skip') { deck.push(deck.shift()); renderDeck(); return; }
+    let note = '';
+    if (status === 'flagged') { note = prompt('What did you count? (e.g. "found 50, logged 100")', ''); if (note === null) { renderDeck(); return; } if (!note.trim()) note = 'Discrepancy'; }
+    const card = $('auditDeck').querySelector('.audit-card-item');
+    if (card) card.classList.add(status === 'verified' ? 'fly-right' : 'fly-left');
+    deck.shift();
+    Object.assign(g, { AuditStatus: status === 'verified' ? 'Verified' : 'Flagged', AuditNote: note });
+    setTimeout(renderDeck, 260);
+    try { await call('admin.auditGift', { giftId: g.GiftId, status: status, note: note }); }
+    catch (e) { g.AuditStatus = ''; deck.unshift(g); renderDeck(); }
+  }
+  $('auditStart').addEventListener('click', async () => {
+    if (!gifts.length) await loadGifts();
+    deck = gifts.filter(g => g.Amount && !g.AuditStatus);
+    $('auditDeck').hidden = false; renderDeck(); $('auditDeck').focus();
+    $('auditDeck').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  $('auditActions').addEventListener('click', e => { const b = e.target.closest('[data-audit]'); if (b) auditDecide(b.dataset.audit); });
+  $('auditDeck').addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') auditDecide('verified');
+    else if (e.key === 'ArrowLeft') auditDecide('flagged');
+    else if (e.key === 'ArrowDown') auditDecide('skip');
+  });
+  App.swipe($('auditDeck'), '.audit-card-item', { right: () => auditDecide('verified'), left: () => auditDecide('flagged') });
+  addEventListener('online', () => Door.sync(doorCall).then(doorStatus));
+  addEventListener('offline', doorStatus);
+  // Same path a camera scan takes; also used by hardware scanners / tests.
+  window.doorScanText = text => doorCheckIn(Door.parse(text));
+  setInterval(() => { if (Door.pending().length) Door.sync(doorCall).then(doorStatus); }, 20000);
+  $('doorScan').addEventListener('click', async () => {
+    const v = $('doorVideo');
+    if (!v.hidden) { (v.srcObject && v.srcObject.getTracks() || []).forEach(t => t.stop()); v.hidden = true; return; }
+    try {
+      const det = new BarcodeDetector({ formats: ['qr_code'] });
+      v.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      v.hidden = false; await v.play();
+      let last = '';
+      const tick = async () => {
+        if (v.hidden) return;
+        try { const c = await det.detect(v); if (c[0] && c[0].rawValue !== last) { last = c[0].rawValue; doorCheckIn(Door.parse(last)); } } catch (e) { }
+        setTimeout(tick, 300);
+      };
+      tick();
+    } catch (e) { msg('Camera unavailable — type the name instead.', 'err'); }
+  });
+
+  // ---------- People (households + remembered relatives) ----------
+  let people = [];
+  async function loadPeople() { people = await call('admin.people'); renderPeople(); }
+  function renderPeople() {
+    const q = $('peopleSearch').value.toLowerCase();
+    $('peopleTable').innerHTML = '<tr><th>Name</th><th>Household</th><th>Relation</th><th>Side</th><th>Band</th><th>In</th><th></th></tr>' +
+      people.filter(p => !q || JSON.stringify(p).toLowerCase().indexOf(q) >= 0).map(p =>
+        '<tr data-m="' + esc(p.MemberId) + '"><td>' + esc(p.Name) + '<div class="muted">' + esc(p.NameNe || '') + '</div></td><td>' + esc(p.Household) +
+        '</td><td>' + esc(p.RelationTo) + ' · ' + esc(p.RelationType) + '<div class="muted">' + esc(p.Relation || '') + '</div></td><td><span class="side-tag ' + esc(p.Side) + '">' +
+        esc(p.Side) + '</span></td><td>' + (p.Band ? '<span class="band ' + esc(p.Band) + '">' + esc(p.Band) + '</span>' : '') + '</td><td>' + (yes(p.CheckedIn) ? '✅' : '') +
+        '</td><td><button class="btn sm" data-act="in">Check in</button> <button class="btn ghost sm" data-act="age">ID ok</button></td></tr>').join('');
+  }
+  $('peopleSearch').addEventListener('input', renderPeople);
+  $('peopleTable').addEventListener('click', async e => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const memberId = b.closest('tr').dataset.m;
+    await call(b.dataset.act === 'in' ? 'admin.checkInMember' : 'admin.verifyMember', { memberId: memberId, value: true });
+    loadPeople();
+  });
+
+  // ---------- Photos ----------
+  async function loadMedia() {
+    const url = siteRoot() + 'photos.html';
+    $('photoLink').href = url; $('photoLink').textContent = url;
+    $('photoQr').innerHTML = '';
+    if (window.QRCode) new QRCode($('photoQr'), { text: url, width: 220, height: 220 });
+    const rows = await call('admin.media');
+    mediaRows = rows; renderMedia();
+    const evs = await call('admin.events').catch(() => []);
+    $('mediaQrs').innerHTML = (evs || []).map(ev => '<div class="card center"><b>' + esc(ev.NameEn) + '</b><div data-qr="' + esc(url + '?event=' + encodeURIComponent(ev.NameEn || ev.EventId) + '&open=1') + '"></div></div>').join('');
+    if (window.QRCode) $('mediaQrs').querySelectorAll('[data-qr]').forEach(d => new QRCode(d, { text: d.dataset.qr, width: 150, height: 150 }));
+  }
+  let mediaRows = [];
+  function renderMedia() {
+    const q = ($('mediaSearch').value || '').toLowerCase(), f = $('mediaFilter').value;
+    const rows = mediaRows.filter(r => (!q || [r.Name, r.FileName, r.Category, r.Transcript, r.Summary].join(' ').toLowerCase().indexOf(q) >= 0) &&
+      (!f || (f === 'star' ? r.Starred === 'TRUE' : f === 'muted' ? r.AudioFlag === 'distorted' : f === 'guestbook' ? /guestbook|blessing/i.test(r.Category) : true)));
+    $('mediaTable').innerHTML = '<tr><th>Preview</th><th>By</th><th>Clip</th><th>Status</th><th></th></tr>' + rows.map(r =>
+      '<tr data-media="' + esc(r.MediaId) + '"><td><a target="_blank" href="https://drive.google.com/file/d/' + esc(r.DriveFileId) + '/view">' +
+      '<img loading="lazy" style="width:70px;height:70px;object-fit:cover" src="' + (r.Thumb ? esc(r.Thumb) : 'https://drive.google.com/thumbnail?id=' + esc(r.DriveFileId) + '&sz=w200') + '" alt=""></a></td><td>' +
+      esc(r.Name) + '<div class="muted">' + esc(r.Side || '') + '</div></td><td>' + esc(r.Type) + (r.Category ? ' · ' + esc(r.Category) : '') +
+      (r.AudioFlag === 'distorted' ? '<div class="danger">🔇 muted B-roll (' + esc(r.ClipPct) + '% clipped)</div>' : r.AudioFlag === 'ok' ? '<div class="muted">🔊 audio OK</div>' : '') +
+      (r.Summary ? '<div><b>' + esc(r.Summary) + '</b></div>' : '') + '</td><td>' + esc(r.Status) + '</td><td>' +
+      '<button class="btn ghost sm" data-star>' + (r.Starred === 'TRUE' ? '⭐' : '☆') + '</button> <button class="btn ghost sm" data-note>📝</button> ' +
+      '<button class="btn sm" data-status="Approved">Show</button> <button class="btn ghost sm" data-status="Hidden">Hide</button></td></tr>').join('');
+  }
+  $('mediaSearch').addEventListener('input', renderMedia);
+  $('mediaFilter').addEventListener('change', renderMedia);
+  $('mediaTable').addEventListener('click', async e => {
+    const tr = e.target.closest('tr[data-media]'); if (!tr) return;
+    const r = mediaRows.find(x => x.MediaId === tr.dataset.media);
+    const save = p => call('admin.mediaNote', Object.assign({ mediaId: r.MediaId, transcript: r.Transcript, summary: r.Summary, category: r.Category, starred: r.Starred === 'TRUE', audioFlag: r.AudioFlag }, p)).then(() => { Object.assign(r, p.raw || {}); renderMedia(); });
+    if (e.target.closest('[data-star]')) save({ starred: r.Starred !== 'TRUE', raw: { Starred: r.Starred === 'TRUE' ? '' : 'TRUE' } });
+    if (e.target.closest('[data-note]')) {
+      const t = prompt('Transcript (what is said — Nepali or English):', r.Transcript || ''); if (t == null) return;
+      const s = prompt('One-line summary (e.g. "Grandfather wishing long life"):', r.Summary || ''); if (s == null) return;
+      save({ transcript: t, summary: s, raw: { Transcript: t, Summary: s } });
+    }
+  });
+  $('mediaTable').addEventListener('click', async e => {
+    const b = e.target.closest('[data-status]');
+    if (!b) return;
+    await call('admin.moderateMedia', { mediaId: b.closest('tr').dataset.media, status: b.dataset.status });
+    loadMedia();
+  });
+
+  $('exportMedia').addEventListener('click', async () => {
+    const rows = await call('admin.mediaExport');
+    if (!rows.length) return msg('No uploads yet');
+    const cols = Object.keys(rows[0]);
+    const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const csv = '\ufeff' + [cols.join(',')].concat(rows.map(r => cols.map(c => q(r[c])).join(','))).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'wedding-media.csv';
+    a.click();
+  });
+
+  // ---------- Games ----------
+  let games = [];
+  async function loadGames() {
+    games = await call('admin.games');
+    $('gameTable').innerHTML = '<tr><th>Game</th><th>Who</th><th>Points</th><th>Active</th><th></th></tr>' + games.map(g =>
+      '<tr data-g="' + esc(g.GameId) + '"><td>' + esc(g.TitleEn) + '<div class="muted">' + esc(g.QuestionEn || '') + '</div></td><td>' + esc(g.Groups) +
+      '</td><td>' + esc(g.Points) + '</td><td>' + (yes(g.Active) ? '✅' : '') + '</td><td><button class="btn sm" data-edit>Edit</button></td></tr>').join('');
+  }
+  $('gameTable').addEventListener('click', e => {
+    if (!e.target.closest('[data-edit]')) return;
+    const g = games.find(x => x.GameId === e.target.closest('tr').dataset.g);
+    const f = $('gameForm');
+    Object.keys(g).forEach(k => { if (f[k]) { if (f[k].type === 'checkbox') f[k].checked = yes(g[k]); else f[k].value = g[k]; } });
+    f.scrollIntoView({ behavior: 'smooth' });
+  });
+  $('gameForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target).entries());
+    d.Active = e.target.Active.checked;
+    await call('admin.saveGame', d);
+    e.target.reset();
+    msg('Game saved 🎲', 'ok');
+    loadGames();
+  });
+
+  // ---------- Memorial ----------
+  async function loadMemorial() {
+    try {
+      const m = await API.call('getMemorial');
+      const f = $('momForm');
+      Object.keys(m.profile || {}).forEach(k => { if (f[k]) f[k].value = m.profile[k]; });
+    } catch (e) { /* memorial may be disabled */ }
+    const rows = await call('admin.memories');
+    $('memTable').innerHTML = '<tr><th>From</th><th>Memory</th><th>Private</th><th>Status</th><th></th></tr>' +
+      rows.slice().reverse().map(r => '<tr data-mem="' + esc(r.MemoryId) + '"><td>' + esc(r.Name) + '<div class="muted">' + esc(r.Relation) + '</div></td><td style="white-space:pre-wrap">' +
+        esc(r.Text) + '</td><td>' + (yes(r.IsPrivate) ? '🔒' : '') + '</td><td>' + esc(r.Status) + '</td><td>' +
+        '<button class="btn sm" data-status="Approved">Approve</button> <button class="btn ghost sm" data-status="Hidden">Hide</button></td></tr>').join('');
+  }
+
+  $('memTable').addEventListener('click', async e => {
+    const b = e.target.closest('[data-status]');
+    if (!b) return;
+    await call('admin.moderateMemory', { memoryId: b.closest('tr').dataset.mem, status: b.dataset.status });
+    loadMemorial();
+  });
+
+  $('momForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    await call('admin.saveMom', Object.fromEntries(new FormData(e.target).entries()));
+    msg("Mom's profile saved 🙏", 'ok');
+  });
+
+  // Memory book: printable page -> browser "Save as PDF" (renders Devanagari correctly).
+  async function memoryBook() {
+    const w = window.open('', '_blank');
+    if (!w) { msg('Allow pop-ups to open the memory book', 'err'); return; }
+    w.document.write('<p style="font-family:serif;padding:2rem">Preparing…</p>');
+    const b = await call('admin.memoryBook');
+    const p = b.profile || {};
+    const img = id => id ? '<img src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w800" alt="">' : '';
+    w.document.open();
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Memory book</title>' +
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Tiro+Devanagari+Hindi&display=swap">' +
+      '<style>body{font-family:"Cormorant Garamond","Tiro Devanagari Hindi",serif;max-width:720px;margin:auto;padding:2rem;color:#3b2a10}' +
+      'h1{text-align:center;font-size:2.4rem}.m{page-break-inside:avoid;border-bottom:1px solid #e5d6b8;padding:1rem 0}.m img{max-width:100%;border-radius:8px}' +
+      '.by{color:#8a6d3b;font-style:italic}@media print{button{display:none}}</style></head><body>' +
+      '<button onclick="print()">Save as PDF</button>' +
+      '<h1>🪔 ' + esc(p.nameEn || 'Mom') + (p.nameNe ? ' · ' + esc(p.nameNe) : '') + '</h1>' +
+      (p.years ? '<p style="text-align:center">' + esc(p.years) + '</p>' : '') +
+      '<p style="text-align:center">' + esc(p.dedicationEn || '') + '<br>' + esc(p.dedicationNe || '') + '</p>' +
+      (b.memories || []).map(m => '<div class="m">' + img(m.DriveFileId) + '<p style="white-space:pre-wrap">' + esc(m.Text) + '</p><p class="by">— ' + esc(m.Name) + (m.Relation ? ', ' + esc(m.Relation) : '') + '</p></div>').join('') +
+      ((b.diyas || []).length ? '<h2>Blessings</h2>' + b.diyas.map(d => '<p>🪔 ' + esc(d.Blessing) + ' <span class="by">— ' + esc(d.Name) + '</span></p>').join('') : '') +
+      '</body></html>');
+    w.document.close();
+  }
+  const mbBtn = document.createElement('button');
+  mbBtn.type = 'button'; mbBtn.className = 'btn ghost'; mbBtn.id = 'memoryBookBtn'; mbBtn.textContent = '📖 Memory book (PDF)';
+  mbBtn.onclick = () => memoryBook().catch(err => msg(err.message, 'err'));
+  $('memTable').before(mbBtn);
+
+  // ---------- Settings ----------
+  async function loadSettings() {
+    const rows = await call('admin.settings');
+    $('settingsTable').innerHTML = '<tr><th>Setting</th><th>Value</th><th>Group</th></tr>' + rows.map(r => {
+      const t = String(r.Type || 'text');
+      const v = String(r.Value);
+      let input;
+      if (t === 'toggle') input = '<input type="checkbox"' + (yes(v) ? ' checked' : '') + '>';
+      else if (t === 'color') input = '<input type="color" value="' + esc(v) + '">';
+      else if (t === 'number') input = '<input type="number" value="' + esc(v) + '">';
+      else if (t === 'datetime') input = '<input type="datetime-local" value="' + esc(v.slice(0, 16)) + '">';
+      else if (t.indexOf('select:') === 0) input = '<select>' + t.slice(7).split(',').map(o => '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>';
+      else input = '<input value="' + esc(v) + '">';
+      return '<tr data-key="' + esc(r.Key) + '" data-type="' + esc(t) + '"><td><b>' + esc(r.Description || r.Key) + '</b><div class="muted">' + esc(r.Key) + '</div></td><td>' + input + '</td><td>' + esc(r.Group) + '</td></tr>';
+    }).join('');
+  }
+
+  $('settingsTable').addEventListener('change', async e => {
+    const tr = e.target.closest('tr[data-key]');
+    if (!tr) return;
+    const value = tr.dataset.type === 'toggle' ? (e.target.checked ? 'TRUE' : 'FALSE') : e.target.value;
+    tr.classList.add('saving');
+    msg('Saved: ' + tr.dataset.key, 'ok');
+    try { await call('admin.saveSetting', { key: tr.dataset.key, value: value }); }
+    catch (err) { if (tr.dataset.type === 'toggle') e.target.checked = !e.target.checked; return; }
+    finally { tr.classList.remove('saving'); }
+    sessionStorage.removeItem('config');
+  });
+
+  // ---------- Boot ----------
+  I18N.apply();
+  App.langSwitcher($('langSwitch'));
+  if (sessionStorage.getItem('adminKey')) {
+    API.call('admin.login').then(start).catch(() => sessionStorage.removeItem('adminKey'));
+  }
+})();

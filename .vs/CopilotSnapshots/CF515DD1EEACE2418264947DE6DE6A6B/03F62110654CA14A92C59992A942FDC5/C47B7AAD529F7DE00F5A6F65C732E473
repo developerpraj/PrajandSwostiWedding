@@ -1,0 +1,136 @@
+﻿<!DOCTYPE html>
+<html lang="ne">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#b3122e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="शुभविवाह" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <title>दर्ता · Registration</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/mobile.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🪔 शुभविवाह</div>
+    <nav>
+      <a href="index.html" data-guest-link data-icon="🏠" data-i18n="nav.home">Home</a>
+      <a href="register.html" data-guest-link data-icon="📝" data-i18n="nav.register" class="current">Register</a>
+      <a href="photos.html" data-guest-link data-icon="📷" data-i18n="nav.photos" data-feature="feature.media">Photos</a>
+      <a href="games.html" data-guest-link data-icon="🎲" data-i18n="nav.games" data-feature="feature.games">Games</a>
+      <a href="gift.html" data-guest-link data-icon="🎁" data-i18n="nav.gift" data-feature="feature.gifts">Gift</a>
+      <a href="pass.html" data-guest-link data-icon="🎫" data-i18n="nav.pass">My Pass</a>
+      <a href="memorial.html" data-guest-link data-icon="🪔" data-i18n="nav.memorial" id="navMemorial">In Memory of Mom</a>
+    </nav>
+    <div class="lang-switch" id="langSwitch"></div>
+  </header>
+
+  <main>
+    <div id="msg" class="msg" hidden></div>
+
+    <form id="regForm" class="card" hidden>
+      <h2 data-i18n="reg.title">Guest Registration</h2>
+      <p class="muted" data-i18n="reg.intro"></p>
+
+      <div class="grid">
+        <div><label data-i18n="reg.name"></label><input name="Name" required maxlength="80" /></div>
+        <div><label data-i18n="reg.nameNe"></label><input name="NameNe" maxlength="80" /></div>
+        <div><label data-i18n="reg.phone"></label><input name="Phone" type="tel" required maxlength="20" /></div>
+        <div><label data-i18n="reg.email"></label><input name="Email" type="email" maxlength="120" /><small class="muted" id="noEmailHint" data-i18n="contact.noEmail"></small></div>
+        <div><label data-i18n="contact.pref"></label><select name="ContactPref" id="contactPref"></select></div>
+        <div>
+          <label data-i18n="reg.dob"></label><input name="DOB" type="date" required />
+          <div class="muted" data-i18n="reg.dobHelp"></div>
+        </div>
+        <div>
+          <label data-i18n="rel.to"></label>
+          <select name="RelationTo" required class="rel-to"></select>
+        </div>
+        <div>
+          <label data-i18n="rel.type"></label>
+          <select name="RelationType" required class="rel-type"></select>
+        </div>
+        <div><label data-i18n="reg.relation"></label><input name="Relation" required maxlength="60" list="relations" /></div>
+        <div><label data-i18n="reg.relationNe"></label><input name="RelationNe" maxlength="60" /></div>
+      </div>
+      <datalist id="relations">
+        <option value="Parent"><option value="Sibling"><option value="Mama"><option value="Maiju"><option value="Kaka">
+        <option value="Kaki"><option value="Fupu"><option value="Fupaju"><option value="Thulo Buwa"><option value="Thuli Aama">
+        <option value="Cousin"><option value="Hajurbuwa"><option value="Hajuraama"><option value="Friend"><option value="Colleague"><option value="Neighbor">
+      </datalist>
+
+      <h3 data-i18n="reg.status"></h3>
+      <div class="grid">
+        <div>
+          <select name="Status" required>
+            <option value="Attending" data-i18n="status.Attending"></option>
+            <option value="Maybe" data-i18n="status.Maybe"></option>
+            <option value="Not attending" data-i18n="status.Not attending"></option>
+          </select>
+        </div>
+        <div>
+          <div class="muted"><span data-i18n="reg.max"></span> <span data-i18n="pass.people"></span>: <b id="maxCount">1</b></div>
+        </div>
+        <div>
+          <label data-i18n="reg.meal"></label>
+          <select name="Meal">
+            <option value="Veg" data-i18n="meal.Veg"></option>
+            <option value="Non-veg" data-i18n="meal.Non-veg"></option>
+            <option value="Vegan" data-i18n="meal.Vegan"></option>
+            <option value="Jain" data-i18n="meal.Jain"></option>
+          </select>
+        </div>
+        <div><label data-i18n="reg.allergies"></label><input name="Allergies" maxlength="200" /></div>
+        <div><label data-i18n="reg.arrival"></label><input name="Arrival" type="date" /></div>
+        <div><label data-i18n="reg.departure"></label><input name="Departure" type="date" /></div>
+      </div>
+      <label class="check" id="nonDrinkerRow"><input type="checkbox" name="NonDrinker" /> <span data-i18n="reg.nonDrinker"></span></label>
+
+      <h3 data-i18n="fam.title"></h3>
+      <p class="muted" data-i18n="fam.intro"></p>
+      <div id="family"></div>
+      <p><button type="button" class="btn ghost" id="addMember" data-i18n="fam.add">Add</button></p>
+
+      <div id="venueBox" hidden>
+        <h3 data-i18n="venue.title"></h3>
+        <input type="hidden" name="VenueId" />
+        <div id="venues" class="venues"></div>
+      </div>
+
+      <h3 data-i18n="reg.events"></h3>
+      <div id="events"></div>
+      <div id="attended" class="attended" hidden>
+        <h3 data-i18n="att.title">Which functions did you attend?</h3>
+        <div class="chips"></div>
+      </div>
+
+      <label class="check"><input type="checkbox" id="consent" required /> <span data-i18n="reg.consent"></span></label>
+      <p><button class="btn" id="submitBtn" data-i18n="reg.submit">Submit</button></p>
+    </form>
+
+    <form id="accForm" class="card" hidden>
+      <h2 data-i18n="acc.title">Accommodation</h2>
+      <p class="muted" data-i18n="acc.intro"></p>
+      <div class="grid">
+        <div><label data-i18n="acc.nights"></label><input name="Nights" type="number" min="1" max="14" value="1" /></div>
+        <div><label data-i18n="acc.people"></label><input name="People" type="number" min="1" value="1" /></div>
+      </div>
+      <label data-i18n="acc.needs"></label><textarea name="Needs" maxlength="500"></textarea>
+      <p id="accStatus" class="muted"></p>
+      <p><button class="btn alt" data-i18n="acc.submit">Request</button></p>
+      <div id="accMsg" class="msg" hidden></div>
+    </form>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/register.js"></script>
+</body>
+</html>

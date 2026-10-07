@@ -1,0 +1,99 @@
+﻿/* Admin ops + guest engagement polish: swipe rows, door flash, salami audit deck, phones-down, theme presets,
+   premium invitation card. See docs/TECHNICAL_REFERENCE.md section 5.7. Loaded after base.css/mobile.css. */
+
+.swipe-row { position: relative; touch-action: pan-y; transition: transform .28s cubic-bezier(.2,.8,.2,1), box-shadow .2s, background-color .2s; user-select: none; -webkit-user-select: none; }
+.swipe-row.swiping { transition: none; box-shadow: 0 10px 24px rgba(0,0,0,.12); }
+.swipe-row.go-right { background: linear-gradient(90deg, rgba(63,125,79,.18), transparent 70%); }
+.swipe-row.go-left { background: linear-gradient(270deg, rgba(43,106,143,.18), transparent 70%); }
+.door-row { animation: rowIn .32s ease both; }
+.door-row.is-in { opacity: .72; }
+@keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.swipe-hint { font-size: .85rem; margin: .4rem 0; }
+.sync-pending { background: #f6d55c; color: #4a3800; animation: pendingPulse 1.6s ease-in-out infinite; }
+@keyframes pendingPulse { 50% { box-shadow: 0 0 0 4px rgba(246,213,92,.35); } }
+
+.door-flash { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; padding: 2rem; text-align: center; color: #fff; font-size: clamp(1.4rem, 6vw, 2.4rem); font-weight: 800; pointer-events: none; animation: flashIn 1.3s ease forwards; }
+.door-flash[hidden] { display: none; }
+.door-flash.adult { background: rgba(46,125,50,.94); }
+.door-flash.minor { background: rgba(179,38,30,.95); }
+.door-flash.blue { background: rgba(43,106,143,.94); }
+@keyframes flashIn { 0% { opacity: 0; transform: scale(1.04); } 12% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; } }
+
+.audit-deck { position: relative; min-height: 420px; max-width: 420px; margin: .8rem auto; outline: none; }
+.audit-deck[hidden] { display: none; }
+.audit-card-item, .audit-under { position: absolute; inset: 0; border-radius: 20px; background: var(--card, #fff); border: 1px solid var(--line); box-shadow: 0 14px 34px rgba(42,29,23,.16); overflow: hidden; display: flex; flex-direction: column; }
+.audit-card-item { animation: cardIn .35s cubic-bezier(.2,.8,.2,1) both; }
+.audit-under { transform: translateY(10px) scale(.96); z-index: -1; opacity: .6; }
+.audit-card-item img { width: 100%; height: 260px; object-fit: cover; background: var(--sand); pointer-events: none; }
+.audit-nophoto { height: 260px; display: grid; place-items: center; font-size: 3rem; background: var(--sand); }
+.audit-meta { padding: 1rem 1.2rem; }
+.audit-amt { font-size: 2.2rem; font-weight: 800; color: var(--primary); }
+.audit-card-item .stamp { position: absolute; top: 22px; padding: .2rem .7rem; border: 4px solid; border-radius: 10px; font-weight: 900; font-size: 1.5rem; opacity: 0; transition: opacity .15s; }
+.audit-card-item .stamp.yes { left: 18px; color: var(--green); transform: rotate(-12deg); }
+.audit-card-item .stamp.no { right: 18px; color: var(--red); transform: rotate(12deg); }
+.audit-card-item.go-right .stamp.yes, .audit-card-item.go-left .stamp.no { opacity: 1; }
+.audit-card-item.fly-right { transition: transform .26s ease-in, opacity .26s; transform: translateX(130%) rotate(18deg) !important; opacity: 0; }
+.audit-card-item.fly-left { transition: transform .26s ease-in, opacity .26s; transform: translateX(-130%) rotate(-18deg) !important; opacity: 0; }
+@keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
+.audit-done { display: grid; place-items: center; min-height: 200px; font-size: 1.3rem; font-weight: 700; animation: cardIn .4s ease both; }
+.audit-actions { justify-content: center; }
+.audit-actions .audit-no { color: var(--red); border-color: var(--red); }
+.audit-actions .audit-yes { background: var(--green); }
+.audit-ok { background: #d8efdc; color: #1f5b2c; }
+.audit-bad { background: #f9d6d3; color: #7d1a14; }
+.btn.pop { animation: pop .35s ease; }
+@keyframes pop { 50% { transform: scale(1.08); } }
+.duty-picks { display: inline-flex; flex-wrap: wrap; gap: .4rem .8rem; align-items: center; }
+#tabs button[hidden] { display: none; }
+#freezeState.warn { background: var(--red); color: #fff; }
+
+/* Phones down: calm banner; optional fun is visually paused, basics untouched */
+.freeze-banner { position: sticky; top: 0; z-index: 60; display: flex; gap: .6rem; align-items: center; justify-content: center; padding: .75rem 1rem; text-align: center; font-weight: 600;
+  color: #fff; background: linear-gradient(110deg, #5b1020, var(--primary) 45%, #5b1020); background-size: 220% 100%; animation: freezeSlide .45s ease both, sheen 6s linear infinite; }
+.freeze-ico { font-size: 1.4rem; animation: floaty 2.4s ease-in-out infinite; }
+@keyframes freezeSlide { from { transform: translateY(-100%); } to { transform: none; } }
+@keyframes sheen { to { background-position: -220% 0; } }
+@keyframes floaty { 50% { transform: translateY(-3px); } }
+html.frozen [data-feature="feature.games"], html.frozen #promptCard, html.frozen .hub-tile[href^="games"] { filter: grayscale(.9); opacity: .55; pointer-events: none; }
+.paused-card { text-align: center; padding: 2rem 1rem; animation: cardIn .4s ease both; }
+.paused-ico { font-size: 3rem; animation: floaty 2.4s ease-in-out infinite; }
+.paused { opacity: .5; pointer-events: none; }
+
+/* Theme presets (Settings > Theme > theme.preset); explicit colours still win */
+html[data-preset="royal"] { --bg: #f5f1fa; --sand: #e9e0f3; --line: #ddd0ea; }
+html[data-preset="garden"] { --bg: #f3f8f1; --sand: #e2eedc; --line: #d3e3cb; }
+html[data-preset="midnight"] { --bg: #1d1a22; --card: #29242f; --text: #f3ece2; --muted: #b9ab9b; --line: #3c3443; --sand: #2f2935; }
+html[data-preset="blush"] { --bg: #fdf3f4; --sand: #f7e1e4; --line: #efd0d5; }
+html[data-preset="heritage"] { --bg: #f7efe2; --sand: #ecdcc0; --line: #dfc9a3; }
+
+/* Door undo toast */
+.undo-toast { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 9998; display: flex; gap: .8rem; align-items: center;
+  padding: .55rem .6rem .55rem 1rem; border-radius: 999px; background: #2a1d17; color: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.25); animation: toastUp .3s cubic-bezier(.2,.8,.2,1) both; max-width: calc(100vw - 24px); }
+.undo-toast[hidden] { display: none; }
+.undo-toast .btn { min-height: 40px; color: #fff; border-color: rgba(255,255,255,.5); }
+@keyframes toastUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* Scheduled freezes + audit summary */
+.freeze-sched { margin-top: .8rem; }
+.freeze-sched summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.freeze-win { align-items: center; flex-wrap: wrap; }
+.freeze-win input { flex: 1 1 180px; }
+.shake { animation: shake .4s ease; }
+@keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+.audit-summary { display: grid; gap: .4rem; margin: .4rem 0 .8rem; }
+.audit-sum-row { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+
+/* Premium invitation card: gold-foil border, inner rule, ornaments, slow shimmer */
+#inviteCard { position: relative; overflow: hidden; text-align: center; border: 1px solid transparent; border-radius: 20px;
+  background: linear-gradient(var(--card), var(--card)) padding-box, linear-gradient(135deg, #b8860b, #f5d77a 30%, #a8761a 55%, #f7e3a1 80%, #b8860b) border-box;
+  box-shadow: 0 18px 40px -18px rgba(91,16,32,.35); }
+#inviteCard::before { content: ''; position: absolute; inset: 8px; border: 1px solid rgba(184,134,11,.45); border-radius: 14px; pointer-events: none; }
+#inviteCard::after { content: ''; position: absolute; top: 0; left: -60%; width: 40%; height: 100%; background: linear-gradient(100deg, transparent, rgba(255,240,200,.45), transparent); transform: skewX(-18deg); animation: foil 7s ease-in-out infinite; pointer-events: none; }
+#inviteCard h2 { font-family: 'Tiro Devanagari Hindi', Georgia, serif; color: var(--primary); }
+#inviteCard h2::before, #inviteCard h2::after { content: '\2766'; color: #b8860b; margin: 0 .5rem; font-size: .9em; }
+@keyframes foil { 0%, 70% { left: -60%; } 100% { left: 130%; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .freeze-banner, #inviteCard::after, .sync-pending, .freeze-ico, .paused-ico, .door-row, .audit-card-item, .undo-toast, .shake { animation: none !important; }
+  .swipe-row, .audit-card-item { transition: none !important; }
+}

@@ -1,0 +1,157 @@
+﻿// QR photo/video sharing: pick files -> auto upload straight to Google Drive -> shared gallery.
+(async function () {
+  const msg = document.getElementById('msg');
+  let cfg;
+  try { cfg = await App.boot(); } catch (e) { App.msg(msg, e.message, 'err'); return; }
+  if (!App.on(cfg, 'feature.media')) { App.msg(msg, I18N.t('common.error'), 'err'); return; }
+
+  const gid = App.guestId();
+  const params = new URLSearchParams(location.search);
+  const presetEvent = params.get('e') || '';
+  let events = [];
+
+  if (gid) {
+    const d = await App.refreshHousehold();
+    if (d) events = (d.events || []).filter(e => !e.locked);
+    App.profileSwitcher(document.getElementById('whoSwitch'));
+  }
+
+  // Visitors who scan the venue QR without a personal link: remember name + relation on this phone.
+  const visitorRow = document.getElementById('visitorRow');
+  const vName = document.getElementById('visitorName');
+  const vRel = document.getElementById('visitorRel');
+  if (!gid) {
+    if (!App.on(cfg, 'media.allowVisitors')) { App.msg(msg, I18N.t('common.invalidLink'), 'err'); }
+    else {
+      visitorRow.hidden = false;
+      const fill = () => {
+        const v = vRel.value || localStorage.getItem('visitorRel') || '';
+        vRel.innerHTML = '<option value="">—</option>' + (cfg.relationTo || []).map(r =>
+          '<option value="' + App.esc(r) + '">' + App.esc(I18N.t('rel.' + r)) + '</option>').join('');
+        vRel.value = v;
+      };
+      fill();
+      document.addEventListener('langchange', fill);
+      vName.value = localStorage.getItem('visitorName') || '';
+      vName.onchange = () => localStorage.setItem('visitorName', vName.value.trim());
+      vRel.onchange = () => { localStorage.setItem('visitorRel', vRel.value); App.setSide(/^Bride/.test(vRel.value) ? 'Bride' : /^Groom/.test(vRel.value) ? 'Groom' : 'Both', cfg); };
+    }
+  }
+  if (gid || App.on(cfg, 'media.allowVisitors')) document.getElementById('uploader').hidden = false;
+
+  const eventSel = document.getElementById('eventSel');
+  function fillEvents() {
+    if (!events.length) return;
+    document.getElementById('eventRow').hidden = false;
+    const v = eventSel.value || presetEvent;
+    eventSel.innerHTML = '<option value="">—</option>' + events.map(e =>
+      '<option value="' + App.esc(e.EventId) + '">' + App.esc(I18N.bi(e.NameEn, e.NameNe)) + '</option>').join('');
+    eventSel.value = v;
+  }
+  fillEvents();
+  document.addEventListener('langchange', fillEvents);
+
+  // ---------- Upload ----------
+  const queue = document.getElementById('queue');
+  const pending = [];
+  let busy = false;
+
+  function onFiles(list) {
+    if (!gid && (!vName.value.trim() || !vRel.value)) { App.msg(msg, I18N.t('photo.yourName') + ' / ' + I18N.t('rel.to'), 'err'); vName.focus(); return; }
+    App.msg(msg, '');
+    [...list].forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'upload-item';
+      row.innerHTML = '<span class="name"></span><progress max="100" value="0"></progress><span class="state">⏳</span>';
+      row.querySelector('.name').textContent = f.name;
+      queue.prepend(row);
+      pending.push({ file: f, row: row });
+    });
+    next();
+  }
+  document.getElementById('filePick').onchange = e => { onFiles(e.target.files); e.target.value = ''; };
+  document.getElementById('fileCam').onchange = e => { onFiles(e.target.files); e.target.value = ''; };
+
+  async function next() {
+    if (busy || !pending.length) return;
+    busy = true;
+    const job = pending.shift();
+    try { await upload(job); } catch (err) {
+      job.row.querySelector('.state').textContent = '⚠️';
+      job.row.title = err.message;
+      job.row.classList.add('failed');
+      job.row.onclick = () => { job.row.classList.remove('failed'); job.row.onclick = null; pending.push(job); next(); };
+    }
+    busy = false;
+    next();
+  }
+
+  async function upload(job) {
+    const f = job.file;
+    const state = job.row.querySelector('.state');
+    const bar = job.row.querySelector('progress');
+    state.textContent = I18N.t('photo.uploading');
+    const r = await App.uploadFile(f, { name: vName.value.trim(), relationTo: vRel.value, eventId: eventSel.value }, p => bar.value = p);
+    bar.value = 100;
+    state.textContent = r.pending ? '🕓' : '✅';
+    job.row.title = r.pending ? I18N.t('photo.pending') : I18N.t('photo.done');
+    if (!r.pending) { items.unshift(Object.assign(r.media, { mine: true })); render(); }
+    if (!pending.length) App.msg(msg, r.pending ? I18N.t('photo.pending') : I18N.t('photo.done'), 'ok');
+  }
+
+  // ---------- Gallery (view + download for everyone; only owner can remove) ----------
+  const gallery = document.getElementById('gallery');
+  let items = [];
+  let filter = 'all';
+  const thumb = id => 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w400';
+  const download = id => 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(id);
+
+  async function load() {
+    try { items = await API.call('getGallery', { guestId: gid }); render(); }
+    catch (e) { App.msg(msg, e.message, 'err'); }
+  }
+
+  function render() {
+    const list = filter === 'mine' ? items.filter(i => i.mine) : items;
+    if (!list.length) { gallery.innerHTML = '<p class="muted center">' + App.esc(I18N.t('photo.empty')) + '</p>'; return; }
+    gallery.innerHTML = list.map((m, i) =>
+      '<button type="button" class="tile" data-i="' + items.indexOf(m) + '">' +
+      '<img loading="lazy" src="' + thumb(m.fileId) + '" alt="">' +
+      (m.type === 'video' ? '<span class="play">▶</span>' : '') +
+      '<span class="by">' + App.esc(m.name || '') + '</span></button>').join('');
+  }
+
+  gallery.onclick = e => {
+    const t = e.target.closest('.tile');
+    if (t) openViewer(items[Number(t.dataset.i)]);
+  };
+  document.getElementById('filter').onchange = e => { filter = e.target.value; render(); };
+
+  const viewer = document.getElementById('viewer');
+  function openViewer(m) {
+    const media = m.type === 'video'
+      ? '<iframe src="https://drive.google.com/file/d/' + encodeURIComponent(m.fileId) + '/preview" allow="autoplay" allowfullscreen></iframe>'
+      : '<img src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(m.fileId) + '&sz=w1600" alt="">';
+    viewer.innerHTML = '<div class="viewer-inner">' + media +
+      '<div class="viewer-bar"><span>' + App.esc(I18N.t('photo.by')) + ' ' + App.esc(m.name || '') + '</span>' +
+      '<a class="btn" href="' + download(m.fileId) + '" target="_blank" rel="noopener">⬇ ' + App.esc(I18N.t('photo.download')) + '</a>' +
+      (m.mine && gid ? '<button class="btn ghost" data-del>' + App.esc(I18N.t('photo.delete')) + '</button>' : '') +
+      '<button class="btn ghost" data-close>✕</button></div></div>';
+    viewer.hidden = false;
+    viewer.onclick = async ev => {
+      if (ev.target === viewer || ev.target.closest('[data-close]')) { viewer.hidden = true; viewer.innerHTML = ''; }
+      if (ev.target.closest('[data-del]')) {
+        try {
+          await API.call('deleteMedia', { guestId: gid, mediaId: m.id });
+          items = items.filter(x => x.id !== m.id);
+          viewer.hidden = true; viewer.innerHTML = '';
+          render();
+        } catch (err) { App.msg(msg, err.message, 'err'); }
+      }
+    };
+  }
+
+  document.addEventListener('langchange', render);
+  load();
+  setInterval(() => { if (!document.hidden && viewer.hidden) load(); }, 60000);
+})();

@@ -1,0 +1,27 @@
+
+Running 13 tests using 1 worker
+
+[1/13] e2e\scenarios.spec.js:25:1 › invite code link ?c=DEMO02 resolves to G002
+[2/13] e2e\scenarios.spec.js:35:1 › ?g= link stores the guest id
+[3/13] e2e\scenarios.spec.js:42:1 › register and RSVP updates the guest
+[4/13] e2e\scenarios.spec.js:55:1 › sign in returns the household
+[5/13] e2e\scenarios.spec.js:63:1 › uploads are blocked in demo mode
+[6/13] e2e\scenarios.spec.js:70:1 › gift, games, pass, memorial and whisper actions
+[7/13] e2e\scenarios.spec.js:87:1 › pass page renders a QR for the signed-in guest
+[8/13] e2e\scenarios.spec.js:93:1 › language toggle changes document language
+[9/13] e2e\scenarios.spec.js:104:1 › closed app shows the closed screen
+[10/13] e2e\scenarios.spec.js:113:1 › feature flags off keep pages error-free
+[11/13] e2e\scenarios.spec.js:122:1 › revoked link is blocked
+[12/13] e2e\scenarios.spec.js:132:1 › expired link is blocked, future expiry is allowed
+[13/13] e2e\scenarios.spec.js:141:1 › admin linkControl revokes, restores and rotates code
+[MCR] Wedding app coverage
+┌────────────┬────────────┬─────────┬───────────┬─────────┐
+│ Name       │ Coverage % │ Covered │ Uncovered │   Total │
+├────────────┼────────────┼─────────┼───────────┼─────────┤
+│ Bytes      │    53.56 % │  97,149 │    84,236 │ 181,385 │
+│ Statements │    41.32 % │     885 │     1,257 │   2,142 │
+│ Branches   │    30.25 % │     562 │     1,296 │   1,858 │
+│ Functions  │    41.12 % │     278 │       398 │     676 │
+│ Lines      │    45.31 % │   1,106 │     1,335 │   2,441 │
+└────────────┴────────────┴─────────┴───────────┴─────────┘
+  13 passed (25.4s)

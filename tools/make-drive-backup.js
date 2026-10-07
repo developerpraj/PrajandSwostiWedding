@@ -1,0 +1,83 @@
+// Regenerates drive-backup/Wedding/Sheets/*.csv from apps-script/Code.gs so the Drive fallback never drifts.
+// Headers come from SHEETS; Settings.csv gets every DEFAULT_SETTINGS row; MomProfile.csv gets DEFAULT_MOM.
+// Existing data rows (row 2+) in a CSV are kept, re-mapped by column name; columns no longer in SHEETS are reported.
+tools\node\node.exe
+//                         or:  node tools/make-drive-backup.js   [--check]  (--check = report only, write nothing)
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const root = path.join(__dirname, '..');
+const out = path.join(root, 'drive-backup', 'Wedding', 'Sheets');
+const folders = ['Backups', 'Gift QR', 'Invitations', 'Logs', 'Proofs', 'Uploads'];
+const check = process.argv.includes('--check');
+
+function loadBackend() {
+  const ctx = { console };
+  vm.createContext(ctx);
+  ['Pure.gs', 'Code.gs'].forEach(f => vm.runInContext(fs.readFileSync(path.join(root, 'apps-script', f), 'utf8'), ctx, { filename: f }));
+  return vm.runInContext('({ SHEETS, DEFAULT_SETTINGS, DEFAULT_MOM })', ctx);
+}
+
+const q = v => { const s = v == null ? '' : String(v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+
+function parseCsv(text) {
+  const rows = []; let row = [], cell = '', inQ = false;
+  text = text.replace(/^\uFEFF/, '');
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) { if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') inQ = false; else cell += c; }
+    else if (c === '"') inQ = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n') { row.push(cell.replace(/\r$/, '')); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell.replace(/\r$/, '')); rows.push(row); }
+  return rows.filter(r => r.join('') !== '');
+}
+
+function main() {
+  const { SHEETS, DEFAULT_SETTINGS, DEFAULT_MOM } = loadBackend();
+  const problems = [];
+  if (!check) fs.mkdirSync(out, { recursive: true });
+
+  Object.keys(SHEETS).forEach(name => {
+    const head = SHEETS[name], file = path.join(out, name + '.csv');
+    let old = [];
+    if (fs.existsSync(file)) old = parseCsv(fs.readFileSync(file, 'utf8'));
+    const oldHead = old[0] || [];
+    const missing = head.filter(h => oldHead.indexOf(h) < 0), extra = oldHead.filter(h => head.indexOf(h) < 0);
+    if (!fs.existsSync(file)) problems.push(name + '.csv: missing file');
+    else if (missing.length || extra.length || oldHead.join(',') !== head.join(','))
+      problems.push(name + '.csv: header differs' + (missing.length ? ' | missing: ' + missing.join(', ') : '') + (extra.length ? ' | not in backend: ' + extra.join(', ') : ''));
+
+    let data = old.slice(1).map(r => { const o = {}; oldHead.forEach((h, i) => o[h] = r[i]); return o; });
+    if (name === 'Settings') {
+      const have = data.map(r => r.Key);
+      DEFAULT_SETTINGS.forEach(r => { if (have.indexOf(r[0]) < 0) { data.push({ Key: r[0], Value: r[1], Type: r[2], Group: r[3], Description: r[4] }); problems.push('Settings.csv: missing key ' + r[0]); } });
+    }
+    if (name === 'MomProfile') {
+      const have = data.map(r => r.Key);
+      DEFAULT_MOM.forEach(r => { if (have.indexOf(r[0]) < 0) data.push({ Key: r[0], Value: r[1] }); });
+    }
+    if (!check) {
+      const body = [head].concat(data.map(o => head.map(h => o[h]))).map(r => r.map(q).join(',')).join('\r\n') + '\r\n';
+      fs.writeFileSync(file, '\uFEFF' + body, 'utf8');
+    }
+  });
+
+  fs.readdirSync(fs.existsSync(out) ? out : root).filter(f => f.endsWith('.csv') && !SHEETS[f.slice(0, -4)] && fs.existsSync(path.join(out, f)))
+    .forEach(f => problems.push(f + ': no matching sheet in SHEETS (stale?)'));
+  folders.forEach(f => {
+    const keep = path.join(root, 'drive-backup', 'Wedding', f, '.keep');
+    if (!fs.existsSync(keep)) { problems.push('folder missing: Wedding/' + f); if (!check) { fs.mkdirSync(path.dirname(keep), { recursive: true }); fs.writeFileSync(keep, ''); } }
+  });
+
+  if (problems.length) console.log((check ? 'Drift found:\n  ' : 'Fixed:\n  ') + problems.join('\n  '));
+  else console.log('drive-backup is in sync with apps-script/Code.gs (' + Object.keys(SHEETS).length + ' sheets).');
+  if (check && problems.length) process.exitCode = 1;
+}
+
+if (require.main === module) main();
+module.exports = { loadBackend, parseCsv };

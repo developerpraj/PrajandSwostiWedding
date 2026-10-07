@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ne">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#b3122e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="शुभविवाह" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <title>सगुन · Gift</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/mobile.css" />
+  <link rel="stylesheet" href="css/ops.css" />
+  <link rel="stylesheet" href="css/ux.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🪔 शुभविवाह</div>
+    <nav>
+      <a href="index.html" data-guest-link data-icon="🏠" data-i18n="nav.home">Home</a>
+      <a href="photos.html" data-guest-link data-icon="📷" data-i18n="nav.photos" data-feature="feature.media">Photos</a>
+      <a href="games.html" data-guest-link data-icon="🎲" data-i18n="nav.games" data-feature="feature.games">Games</a>
+      <a href="gift.html" data-guest-link data-icon="🎁" data-i18n="nav.gift" class="current">Gift</a>
+      <a href="whisper.html" data-guest-link data-icon="🕶️" data-i18n="nav.whisper">Secret note</a>
+      <a href="pass.html" data-guest-link data-icon="🎫" data-i18n="nav.pass">My Pass</a>
+    </nav>
+    <div class="lang-switch" id="langSwitch"></div>
+  </header>
+
+  <main>
+    <div id="whoSwitch" class="who-switch" hidden></div>
+    <div id="msg" class="msg" hidden></div>
+
+    <section class="card center">
+      <h1 data-i18n="gift.title">Send a blessing / salami</h1>
+      <p class="muted" data-i18n="gift.intro">Scan a QR below with your payment app, then leave us a note.</p>
+      <div id="qrs" class="gift-qrs"></div>
+    </section>
+
+    <form class="card" id="giftForm">
+      <h2 data-i18n="gift.noteTitle">Your note to the couple</h2>
+      <div id="nameRow" hidden><label data-i18n="photo.yourName">Your name</label><input name="name" maxlength="80" /></div>
+      <div class="grid">
+        <div><label data-i18n="gift.method">Paid with</label><select name="method" id="method"></select></div>
+        <div><label data-i18n="gift.amount">Amount (optional)</label>
+          <div class="row-between" style="gap:.4rem"><input name="amount" type="number" inputmode="decimal" min="0" style="flex:1" /><input name="currency" maxlength="5" style="width:5rem" /></div></div>
+      </div>
+      <label data-i18n="gift.note">Blessing / message</label>
+      <textarea name="note" maxlength="1000" rows="4"></textarea>
+      <label class="btn ghost block">📎 <span data-i18n="gift.proof">Attach payment screenshot (optional)</span><input type="file" accept="image/*" name="proof" hidden /></label>
+      <small class="muted" id="proofName"></small>
+      <progress max="100" value="0" hidden id="bar"></progress>
+      <label class="check anon-toggle"><input type="checkbox" name="anon" /> 🕶️ <span data-i18n="anon.gift">Send anonymously</span></label>
+      <p><button class="btn block" id="sendBtn">
+    </form>
+
+    <section class="card center" id="thanks" hidden>
+      <div style="font-size:3rem">🙏</div>
+      <h2 data-i18n="gift.thanks">Thank you for your blessing!</h2>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/gift.js"></script>
+</body>
+</html>

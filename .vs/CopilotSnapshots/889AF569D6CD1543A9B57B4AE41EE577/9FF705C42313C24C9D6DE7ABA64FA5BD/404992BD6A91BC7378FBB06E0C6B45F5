@@ -1,0 +1,6 @@
+﻿// Paste your Apps Script Web App /exec URL here after deploying apps-script/Code.gs
+window.APP_CONFIG = {
+  API_URL: 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE',
+  LIVE_REFRESH_MS: 30000,
+  ADMIN_REFRESH_MS: 15000
+};

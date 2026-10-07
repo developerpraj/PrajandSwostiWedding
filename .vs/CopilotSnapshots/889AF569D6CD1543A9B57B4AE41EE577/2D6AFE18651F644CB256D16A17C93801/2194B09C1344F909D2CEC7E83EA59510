@@ -1,0 +1,85 @@
+﻿// Shared helpers: guest ID, config/theme, language switcher, QR, escaping.
+window.App = (function () {
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function guestId() {
+    const fromUrl = new URLSearchParams(location.search).get('g');
+    if (fromUrl) localStorage.setItem('guestId', fromUrl.trim());
+    return fromUrl || localStorage.getItem('guestId') || '';
+  }
+
+  function withGuest(href) {
+    const g = guestId();
+    return g ? href + (href.indexOf('?') >= 0 ? '&' : '?') + 'g=' + encodeURIComponent(g) : href;
+  }
+
+  async function config() {
+    const cached = sessionStorage.getItem('config');
+    if (cached) return JSON.parse(cached);
+    const c = await API.call('getConfig');
+    sessionStorage.setItem('config', JSON.stringify(c));
+    return c;
+  }
+
+  function on(c, key) { return String(c[key]).toUpperCase() === 'TRUE'; }
+
+  function applyTheme(c) {
+    const r = document.documentElement.style;
+    if (c['theme.primary']) r.setProperty('--primary', c['theme.primary']);
+    if (c['theme.accent']) r.setProperty('--accent', c['theme.accent']);
+    if (c['theme.brideColor']) r.setProperty('--bride', c['theme.brideColor']);
+    if (c['theme.groomColor']) r.setProperty('--groom', c['theme.groomColor']);
+    if (c['lang.default']) window.__defaultLang = c['lang.default'];
+  }
+
+  function langSwitcher(el) {
+    if (!el) return;
+    el.innerHTML = ['en', 'ne', 'mix'].map(m =>
+      '<button type="button" data-lang="' + m + '" class="' + (I18N.mode() === m ? 'active' : '') + '">' +
+      (m === 'en' ? 'EN' : m === 'ne' ? 'ने' : 'ने+EN') + '</button>').join('');
+    el.onclick = e => {
+      const b = e.target.closest('button[data-lang]');
+      if (!b) return;
+      I18N.set(b.dataset.lang);
+      langSwitcher(el);
+    };
+  }
+
+  function qr(el, text, size) {
+    if (!el || typeof qrcode === 'undefined') return;
+    const q = qrcode(0, 'M');
+    q.addData(text);
+    q.make();
+    el.innerHTML = q.createSvgTag({ cellSize: size || 5, margin: 2, scalable: true });
+  }
+
+  function passUrl(id) {
+    return location.origin + location.pathname.replace(/[^/]*$/, '').replace(/admin\/$/, '') + 'pass.html?g=' + encodeURIComponent(id);
+  }
+
+  function msg(el, text, type) {
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'msg ' + (type || '');
+    el.hidden = !text;
+  }
+
+  async function boot() {
+    try {
+      const c = await config();
+      applyTheme(c);
+      I18N.apply();
+      langSwitcher(document.getElementById('langSwitch'));
+      document.querySelectorAll('a[data-guest-link]').forEach(a => a.href = withGuest(a.getAttribute('href')));
+      return c;
+    } catch (e) {
+      I18N.apply();
+      langSwitcher(document.getElementById('langSwitch'));
+      throw e;
+    }
+  }
+
+  return { esc, guestId, withGuest, config, on, applyTheme, langSwitcher, qr, passUrl, msg, boot };
+})();

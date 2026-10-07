@@ -1,0 +1,536 @@
+﻿/**
+ * Wedding App backend - Google Apps Script (free).
+ *
+ * Setup:
+ *  1. Create a Google Sheet (personal account) -> Extensions -> Apps Script.
+ *  2. Paste this file as Code.gs and save.
+ *  3. Run `setup` once (authorize). It creates all tabs, default settings,
+ *     Drive folders and a default admin passcode.
+ *  4. Project Settings -> Script Properties -> change ADMIN_PASSCODE.
+ *  5. Deploy -> New deployment -> Web app -> Execute as: Me, Access: Anyone.
+ *  6. Copy the /exec URL into js/config.js (API_URL).
+ */
+
+const SHEETS = {
+  Settings: ['Key', 'Value', 'Type', 'Group', 'Description'],
+  Guests: ['GuestId', 'Name', 'NameNe', 'Family', 'Side', 'Relation', 'RelationNe', 'Groups', 'Phone', 'Email',
+	'DOB', 'Age', 'NonDrinker', 'AgeVerified', 'AdmitCount', 'AttendingCount', 'Status', 'Meal', 'Allergies',
+	'Arrival', 'Departure', 'AccommodationEligible', 'Table', 'InviteSent', 'InviteOpened', 'Registered',
+	'RegisteredAt', 'CheckedIn', 'CheckedInAt', 'Notes'],
+  Events: ['EventId', 'NameEn', 'NameNe', 'DateTime', 'Venue', 'MapLink', 'DressCode', 'RevealStyle', 'UnlockAt',
+	'Groups', 'Order', 'Visible'],
+  EventRsvp: ['GuestId', 'EventId', 'Response', 'Count', 'UpdatedAt'],
+  Rooms: ['RoomId', 'Name', 'Location', 'Capacity', 'CheckIn', 'CheckOut', 'Notes'],
+  Accommodation: ['RequestId', 'GuestId', 'Nights', 'People', 'Needs', 'Status', 'RoomId', 'UpdatedAt'],
+  Live: ['Timestamp', 'MessageEn', 'MessageNe', 'Active'],
+  MomProfile: ['Key', 'Value'],
+  MomMemories: ['MemoryId', 'GuestId', 'Name', 'Relation', 'Type', 'Text', 'DriveFileId', 'Status', 'IsPrivate', 'Timestamp'],
+  MomDiyas: ['GuestId', 'Name', 'Blessing', 'Timestamp'],
+  AuditLog: ['Timestamp', 'Action', 'Details']
+};
+
+const DEFAULT_SETTINGS = [
+  ['lang.default', 'mix', 'select:en,ne,mix', 'General', 'Default language'],
+  ['couple.brideEn', 'Bride', 'text', 'General', 'Bride name (English)'],
+  ['couple.brideNe', 'दुलही', 'text', 'General', 'Bride name (Nepali)'],
+  ['couple.groomEn', 'Groom', 'text', 'General', 'Groom name (English)'],
+  ['couple.groomNe', 'दुलाहा', 'text', 'General', 'Groom name (Nepali)'],
+  ['wedding.date', '2026-12-12T10:00', 'datetime', 'General', 'Main ceremony date/time'],
+  ['feature.registration', 'TRUE', 'toggle', 'Features', 'Guest registration'],
+  ['registration.open', 'TRUE', 'toggle', 'Registration', 'Registration open'],
+  ['feature.accommodation', 'TRUE', 'toggle', 'Features', 'Accommodation requests'],
+  ['accommodation.open', 'TRUE', 'toggle', 'Accommodation', 'Accept accommodation requests'],
+  ['feature.drinkBand', 'TRUE', 'toggle', 'Features', 'Age verification & drinking band'],
+  ['drink.legalAge', '18', 'number', 'Drinking', 'Legal drinking age'],
+  ['feature.nameTags', 'TRUE', 'toggle', 'Features', 'Name tags'],
+  ['feature.live', 'TRUE', 'toggle', 'Features', "What's happening now banner"],
+  ['feature.memorial', 'TRUE', 'toggle', 'Features', 'Memorial for Mom'],
+  ['memorial.moderation', 'TRUE', 'toggle', 'Memorial', 'Review memories before showing'],
+  ['theme.primary', '#b3122e', 'color', 'Theme', 'Primary color'],
+  ['theme.accent', '#e8a317', 'color', 'Theme', 'Accent color'],
+  ['theme.brideColor', '#e8a317', 'color', 'Theme', 'Bride side tag color'],
+  ['theme.groomColor', '#7a1f3d', 'color', 'Theme', 'Groom side tag color']
+];
+
+const DEFAULT_MOM = [
+  ['nameEn', 'Mom'], ['nameNe', 'आमा'], ['years', ''], ['photoUrl', ''],
+  ['dedicationEn', 'Your love and blessings are with us in every step.'],
+  ['dedicationNe', 'तपाईंको माया र आशीर्वाद हाम्रो हरेक पाइलामा साथ छ।'],
+  ['quoteEn', ''], ['quoteNe', '']
+];
+
+// ---------- Entry points ----------
+
+function doGet() {
+  return json_({ ok: true, message: 'Wedding API running' });
+}
+
+function doPost(e) {
+  try {
+	const req = JSON.parse(e.postData.contents || '{}');
+	const action = req.action || '';
+	const data = req.data || {};
+	if (action.indexOf('admin.') === 0) {
+	  if (!isAdmin_(req.adminKey)) return json_({ ok: false, error: 'unauthorized' });
+	  const fn = ADMIN_ACTIONS[action];
+	  if (!fn) return json_({ ok: false, error: 'unknown action' });
+	  return json_({ ok: true, data: fn(data) });
+	}
+	const fn = PUBLIC_ACTIONS[action];
+	if (!fn) return json_({ ok: false, error: 'unknown action' });
+	return json_({ ok: true, data: fn(data) });
+  } catch (err) {
+	return json_({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+const PUBLIC_ACTIONS = {
+  getConfig: getConfig_,
+  getGuest: getGuest_,
+  register: register_,
+  requestAccommodation: requestAccommodation_,
+  getPass: getPass_,
+  getLive: getLive_,
+  getMemorial: getMemorial_,
+  lightDiya: lightDiya_,
+  submitMemory: submitMemory_
+};
+
+const ADMIN_ACTIONS = {
+  'admin.login': () => ({ valid: true }),
+  'admin.stats': adminStats_,
+  'admin.guests': () => table_('Guests').map(withDerived_),
+  'admin.saveGuest': adminSaveGuest_,
+  'admin.importGuests': adminImportGuests_,
+  'admin.setAccommodationEligible': d => updateBy_('Guests', 'GuestId', d.guestId, { AccommodationEligible: bool_(d.value) ? 'TRUE' : 'FALSE' }),
+  'admin.rooms': () => ({ rooms: table_('Rooms'), requests: table_('Accommodation') }),
+  'admin.saveRoom': adminSaveRoom_,
+  'admin.assignRoom': adminAssignRoom_,
+  'admin.settings': () => table_('Settings'),
+  'admin.saveSetting': d => upsert_('Settings', 'Key', d.key, { Key: d.key, Value: d.value }),
+  'admin.checkIn': d => updateBy_('Guests', 'GuestId', d.guestId, { CheckedIn: 'TRUE', CheckedInAt: new Date().toISOString() }),
+  'admin.verifyAge': d => updateBy_('Guests', 'GuestId', d.guestId, { AgeVerified: bool_(d.value) ? 'TRUE' : 'FALSE' }),
+  'admin.postLive': adminPostLive_,
+  'admin.memories': () => table_('MomMemories'),
+  'admin.moderateMemory': d => updateBy_('MomMemories', 'MemoryId', d.memoryId, { Status: d.status }),
+  'admin.saveMom': d => { Object.keys(d).forEach(k => upsert_('MomProfile', 'Key', k, { Key: k, Value: d[k] })); return true; }
+};
+
+// ---------- Setup ----------
+
+function setup() {
+  const ss = SpreadsheetApp.getActive();
+  Object.keys(SHEETS).forEach(name => {
+	let sh = ss.getSheetByName(name);
+	if (!sh) sh = ss.insertSheet(name);
+	if (sh.getLastRow() === 0) {
+	  sh.appendRow(SHEETS[name]);
+	  sh.setFrozenRows(1);
+	  sh.getRange(1, 1, 1, SHEETS[name].length).setFontWeight('bold');
+	}
+  });
+  const existing = table_('Settings').map(s => s.Key);
+  DEFAULT_SETTINGS.forEach(r => { if (existing.indexOf(r[0]) < 0) ss.getSheetByName('Settings').appendRow(r); });
+  const momKeys = table_('MomProfile').map(m => m.Key);
+  DEFAULT_MOM.forEach(r => { if (momKeys.indexOf(r[0]) < 0) ss.getSheetByName('MomProfile').appendRow(r); });
+
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('ADMIN_PASSCODE')) props.setProperty('ADMIN_PASSCODE', 'change-me-now');
+  if (!props.getProperty('ROOT_FOLDER_ID')) {
+	const root = DriveApp.createFolder('Wedding');
+	['Uploads', 'Invites', 'Mom'].forEach(n => root.createFolder(n));
+	props.setProperty('ROOT_FOLDER_ID', root.getId());
+  }
+  const def = ss.getSheetByName('Sheet1');
+  if (def && ss.getSheets().length > 1 && def.getLastRow() === 0) ss.deleteSheet(def);
+}
+
+// ---------- Public actions ----------
+
+function getConfig_() {
+  const s = settings_();
+  const pub = {};
+  Object.keys(s).forEach(k => {
+	if (/^(feature|lang|couple|wedding|theme|registration|accommodation|drink)\./.test(k)) pub[k] = s[k];
+  });
+  pub.live = s['feature.live'] === 'TRUE' ? activeLive_() : null;
+  return pub;
+}
+
+function getGuest_(d) {
+  const g = findGuest_(d.guestId);
+  markOpened_(g);
+  const s = settings_();
+  const accommodationOn = s['feature.accommodation'] === 'TRUE' && s['accommodation.open'] === 'TRUE' && bool_(g.AccommodationEligible);
+  const rsvps = table_('EventRsvp').filter(r => r.GuestId === g.GuestId);
+  const request = table_('Accommodation').filter(r => r.GuestId === g.GuestId)[0] || null;
+  return {
+	guest: publicGuest_(g),
+	events: visibleEvents_(g),
+	rsvps: rsvps,
+	accommodation: accommodationOn ? { eligible: true, request: request } : { eligible: false }
+  };
+}
+
+function register_(d) {
+  const s = settings_();
+  if (s['feature.registration'] !== 'TRUE' || s['registration.open'] !== 'TRUE') throw new Error('Registration closed');
+  const g = findGuest_(d.guestId);
+  const f = d.form || {};
+  ['Name', 'Phone', 'DOB', 'Side', 'Relation'].forEach(k => { if (!f[k]) throw new Error('Missing ' + k); });
+  const admit = Number(g.AdmitCount) || 1;
+  const count = Math.max(0, Math.min(admit, Number(f.AttendingCount) || 0));
+  const now = new Date().toISOString();
+
+  updateBy_('Guests', 'GuestId', g.GuestId, {
+	Name: str_(f.Name), NameNe: str_(f.NameNe), Phone: str_(f.Phone), Email: str_(f.Email),
+	DOB: str_(f.DOB), Age: ageFrom_(f.DOB), NonDrinker: bool_(f.NonDrinker) ? 'TRUE' : 'FALSE',
+	Side: str_(f.Side), Relation: str_(f.Relation), RelationNe: str_(f.RelationNe),
+	AttendingCount: count, Status: str_(f.Status) || 'Pending', Meal: str_(f.Meal), Allergies: str_(f.Allergies),
+	Arrival: str_(f.Arrival), Departure: str_(f.Departure),
+	Registered: 'TRUE', RegisteredAt: g.RegisteredAt || now
+  });
+
+  const allowed = visibleEvents_(g).filter(e => !e.locked).map(e => e.EventId);
+  (d.events || []).forEach(ev => {
+	if (allowed.indexOf(ev.EventId) < 0) return;
+	const key = g.GuestId + '|' + ev.EventId;
+	upsertComposite_('EventRsvp', ['GuestId', 'EventId'], key, {
+	  GuestId: g.GuestId, EventId: ev.EventId, Response: str_(ev.Response),
+	  Count: Math.max(0, Math.min(admit, Number(ev.Count) || 0)), UpdatedAt: now
+	});
+  });
+
+  if (f.Email) {
+	try {
+	  MailApp.sendEmail(f.Email, 'Registration confirmed / दर्ता पुष्टि भयो',
+		'Namaste ' + f.Name + ',\n\nThank you for registering. Your guest pass is ready on the wedding website.\n\nधन्यवाद 🙏');
+	} catch (e) { /* email quota or invalid address - ignore */ }
+  }
+  log_('register', g.GuestId);
+  return getPass_({ guestId: g.GuestId });
+}
+
+function requestAccommodation_(d) {
+  const s = settings_();
+  const g = findGuest_(d.guestId);
+  if (s['feature.accommodation'] !== 'TRUE' || s['accommodation.open'] !== 'TRUE' || !bool_(g.AccommodationEligible)) {
+	throw new Error('Accommodation not available');
+  }
+  const existing = table_('Accommodation').filter(r => r.GuestId === g.GuestId)[0];
+  const row = {
+	RequestId: existing ? existing.RequestId : id_(), GuestId: g.GuestId,
+	Nights: Number(d.Nights) || 1, People: Math.min(Number(g.AdmitCount) || 1, Number(d.People) || 1),
+	Needs: str_(d.Needs), Status: existing && existing.Status === 'Assigned' ? 'Assigned' : 'Requested',
+	RoomId: existing ? existing.RoomId : '', UpdatedAt: new Date().toISOString()
+  };
+  upsert_('Accommodation', 'RequestId', row.RequestId, row);
+  return row;
+}
+
+function getPass_(d) {
+  const g = withDerived_(findGuest_(d.guestId));
+  const req = table_('Accommodation').filter(r => r.GuestId === g.GuestId)[0];
+  const room = req && req.RoomId ? table_('Rooms').filter(r => r.RoomId === req.RoomId)[0] : null;
+  return {
+	guestId: g.GuestId, name: g.Name, nameNe: g.NameNe, side: g.Side,
+	relation: g.Relation, relationNe: g.RelationNe, table: g.Table,
+	attendingCount: g.AttendingCount, status: g.Status, registered: bool_(g.Registered),
+	band: settings_()['feature.drinkBand'] === 'TRUE' ? g.Band : null,
+	room: room ? { name: room.Name, location: room.Location, checkIn: room.CheckIn, checkOut: room.CheckOut } : null,
+	accommodationStatus: req ? req.Status : null
+  };
+}
+
+function getLive_() { return activeLive_(); }
+
+function getMemorial_() {
+  const s = settings_();
+  if (s['feature.memorial'] !== 'TRUE') throw new Error('Memorial disabled');
+  const profile = {};
+  table_('MomProfile').forEach(r => profile[r.Key] = r.Value);
+  const moderated = s['memorial.moderation'] === 'TRUE';
+  const memories = table_('MomMemories')
+	.filter(m => !bool_(m.IsPrivate) && (!moderated || m.Status === 'Approved'))
+	.map(m => ({ name: m.Name, relation: m.Relation, type: m.Type, text: m.Text, timestamp: m.Timestamp }))
+	.reverse();
+  const diyas = table_('MomDiyas');
+  return {
+	profile: profile, memories: memories, diyaCount: diyas.length,
+	blessings: diyas.filter(x => x.Blessing).slice(-30).reverse().map(x => ({ name: x.Name, blessing: x.Blessing }))
+  };
+}
+
+function lightDiya_(d) {
+  const g = d.guestId ? tryGuest_(d.guestId) : null;
+  sheet_('MomDiyas').appendRow([g ? g.GuestId : '', str_(d.name || (g && g.Name) || 'Guest').slice(0, 80),
+	str_(d.blessing).slice(0, 200), new Date().toISOString()]);
+  return { diyaCount: table_('MomDiyas').length };
+}
+
+function submitMemory_(d) {
+  const g = d.guestId ? tryGuest_(d.guestId) : null;
+  const text = str_(d.text).slice(0, 3000);
+  if (!text) throw new Error('Empty memory');
+  const moderated = settings_()['memorial.moderation'] === 'TRUE';
+  sheet_('MomMemories').appendRow([id_(), g ? g.GuestId : '', str_(d.name || (g && g.Name) || 'Guest').slice(0, 80),
+	str_(d.relation).slice(0, 80), 'text', text, '', moderated ? 'Pending' : 'Approved',
+	bool_(d.isPrivate) ? 'TRUE' : 'FALSE', new Date().toISOString()]);
+  return { pending: moderated };
+}
+
+// ---------- Admin actions ----------
+
+function adminStats_() {
+  const guests = table_('Guests').map(withDerived_);
+  const events = table_('Events');
+  const rsvps = table_('EventRsvp');
+  const acc = table_('Accommodation');
+  const rooms = table_('Rooms');
+  const sum = (arr, f) => arr.reduce((t, x) => t + (Number(f(x)) || 0), 0);
+
+  const byStatus = s => guests.filter(g => g.Status === s);
+  const attending = byStatus('Attending');
+  const meals = {};
+  attending.forEach(g => { const m = g.Meal || 'Unspecified'; meals[m] = (meals[m] || 0) + (Number(g.AttendingCount) || 0); });
+
+  const perEvent = events.map(e => {
+	const r = rsvps.filter(x => x.EventId === e.EventId);
+	return {
+	  eventId: e.EventId, nameEn: e.NameEn, nameNe: e.NameNe, dateTime: e.DateTime,
+	  yes: sum(r.filter(x => x.Response === 'Yes'), x => x.Count),
+	  maybe: sum(r.filter(x => x.Response === 'Maybe'), x => x.Count),
+	  no: r.filter(x => x.Response === 'No').length
+	};
+  });
+
+  const bands = { green: 0, yellow: 0, red: 0, blue: 0 };
+  attending.forEach(g => { if (bands[g.Band] !== undefined) bands[g.Band] += Number(g.AttendingCount) > 0 ? 1 : 0; });
+
+  return {
+	updatedAt: new Date().toISOString(),
+	invited: guests.length,
+	invitedPeople: sum(guests, g => g.AdmitCount),
+	registered: guests.filter(g => bool_(g.Registered)).length,
+	attendingGuests: attending.length,
+	attendingPeople: sum(attending, g => g.AttendingCount),
+	notAttending: byStatus('Not attending').length,
+	maybe: byStatus('Maybe').length,
+	pending: guests.filter(g => !bool_(g.Registered)).length,
+	brideSide: sum(attending.filter(g => g.Side === 'Bride'), g => g.AttendingCount),
+	groomSide: sum(attending.filter(g => g.Side === 'Groom'), g => g.AttendingCount),
+	checkedIn: guests.filter(g => bool_(g.CheckedIn)).length,
+	meals: meals,
+	bands: bands,
+	perEvent: perEvent,
+	accommodation: {
+	  eligible: guests.filter(g => bool_(g.AccommodationEligible)).length,
+	  requested: acc.filter(a => a.Status === 'Requested').length,
+	  assigned: acc.filter(a => a.Status === 'Assigned').length,
+	  people: sum(acc, a => a.People),
+	  capacity: sum(rooms, r => r.Capacity)
+	}
+  };
+}
+
+function adminSaveGuest_(d) {
+  const allowed = SHEETS.Guests.filter(c => c !== 'GuestId');
+  const row = {};
+  allowed.forEach(c => { if (d[c] !== undefined) row[c] = d[c]; });
+  if (row.DOB) row.Age = ageFrom_(row.DOB);
+  if (d.GuestId) { updateBy_('Guests', 'GuestId', d.GuestId, row); return d.GuestId; }
+  row.GuestId = id_();
+  if (!row.AdmitCount) row.AdmitCount = 1;
+  if (!row.Status) row.Status = 'Pending';
+  appendObj_('Guests', row);
+  log_('addGuest', row.GuestId);
+  return row.GuestId;
+}
+
+function adminImportGuests_(d) {
+  const rows = d.rows || [];
+  rows.forEach(r => adminSaveGuest_(Object.assign({}, r, { GuestId: '' })));
+  return rows.length;
+}
+
+function adminSaveRoom_(d) {
+  const row = { RoomId: d.RoomId || id_(), Name: str_(d.Name), Location: str_(d.Location),
+	Capacity: Number(d.Capacity) || 1, CheckIn: str_(d.CheckIn), CheckOut: str_(d.CheckOut), Notes: str_(d.Notes) };
+  upsert_('Rooms', 'RoomId', row.RoomId, row);
+  return row;
+}
+
+function adminAssignRoom_(d) {
+  updateBy_('Accommodation', 'RequestId', d.requestId, {
+	RoomId: str_(d.roomId), Status: d.roomId ? 'Assigned' : (d.status || 'Requested'), UpdatedAt: new Date().toISOString()
+  });
+  return true;
+}
+
+function adminPostLive_(d) {
+  const sh = sheet_('Live');
+  const rows = table_('Live');
+  rows.forEach((r, i) => { if (bool_(r.Active)) sh.getRange(i + 2, SHEETS.Live.indexOf('Active') + 1).setValue('FALSE'); });
+  if (d.messageEn || d.messageNe) sh.appendRow([new Date().toISOString(), str_(d.messageEn), str_(d.messageNe), 'TRUE']);
+  return activeLive_();
+}
+
+// ---------- Helpers ----------
+
+function withDerived_(g) {
+  const legal = Number(settings_()['drink.legalAge']) || 18;
+  const age = g.DOB ? ageFrom_(g.DOB) : '';
+  let band = 'yellow';
+  if (bool_(g.NonDrinker)) band = 'blue';
+  else if (age === '' || age < legal) band = 'red';
+  else if (bool_(g.AgeVerified)) band = 'green';
+  return Object.assign({}, g, { Age: age, Band: band });
+}
+
+function publicGuest_(g) {
+  return {
+	GuestId: g.GuestId, Name: g.Name, NameNe: g.NameNe, Family: g.Family, Side: g.Side,
+	Relation: g.Relation, RelationNe: g.RelationNe, Phone: g.Phone, Email: g.Email, DOB: g.DOB,
+	NonDrinker: bool_(g.NonDrinker), AdmitCount: Number(g.AdmitCount) || 1, AttendingCount: g.AttendingCount,
+	Status: g.Status, Meal: g.Meal, Allergies: g.Allergies, Arrival: g.Arrival, Departure: g.Departure,
+	Registered: bool_(g.Registered)
+  };
+}
+
+function visibleEvents_(g) {
+  const now = new Date();
+  const groups = String(g.Groups || '').split(',').map(x => x.trim().toLowerCase()).filter(String);
+  if (g.Side) groups.push(String(g.Side).toLowerCase());
+  return table_('Events')
+	.filter(e => bool_(e.Visible))
+	.filter(e => {
+	  const eg = String(e.Groups || 'All').split(',').map(x => x.trim().toLowerCase());
+	  return eg.indexOf('all') >= 0 || eg.some(x => groups.indexOf(x) >= 0);
+	})
+	.sort((a, b) => (Number(a.Order) || 0) - (Number(b.Order) || 0))
+	.map(e => {
+	  const unlock = e.UnlockAt ? new Date(e.UnlockAt) : null;
+	  if (unlock && unlock > now) {
+		return { EventId: e.EventId, locked: true, UnlockAt: e.UnlockAt, RevealStyle: e.RevealStyle };
+	  }
+	  return { EventId: e.EventId, NameEn: e.NameEn, NameNe: e.NameNe, DateTime: e.DateTime, Venue: e.Venue,
+		MapLink: e.MapLink, DressCode: e.DressCode, RevealStyle: e.RevealStyle, locked: false };
+	});
+}
+
+function activeLive_() {
+  const live = table_('Live').filter(r => bool_(r.Active));
+  const l = live[live.length - 1];
+  return l ? { en: l.MessageEn, ne: l.MessageNe, at: l.Timestamp } : null;
+}
+
+function markOpened_(g) {
+  if (!bool_(g.InviteOpened)) updateBy_('Guests', 'GuestId', g.GuestId, { InviteOpened: 'TRUE' });
+}
+
+function findGuest_(guestId) {
+  const g = tryGuest_(guestId);
+  if (!g) throw new Error('Invalid guest link');
+  return g;
+}
+
+function tryGuest_(guestId) {
+  if (!guestId) return null;
+  return table_('Guests').filter(x => x.GuestId === String(guestId).trim())[0] || null;
+}
+
+function settings_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('settings');
+  if (hit) return JSON.parse(hit);
+  const out = {};
+  table_('Settings').forEach(r => out[r.Key] = String(r.Value));
+  cache.put('settings', JSON.stringify(out), 30);
+  return out;
+}
+
+function isAdmin_(key) {
+  const pass = PropertiesService.getScriptProperties().getProperty('ADMIN_PASSCODE');
+  return !!key && !!pass && key === pass;
+}
+
+function sheet_(name) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(name);
+  if (!sh) throw new Error('Missing sheet ' + name + ' - run setup()');
+  return sh;
+}
+
+function table_(name) {
+  const values = sheet_(name).getDataRange().getValues();
+  const head = values.shift() || [];
+  return values.filter(r => r.join('') !== '').map(r => {
+	const o = {};
+	head.forEach((h, i) => o[h] = r[i] instanceof Date ? r[i].toISOString() : r[i]);
+	return o;
+  });
+}
+
+function appendObj_(name, obj) {
+  sheet_(name).appendRow(SHEETS[name].map(h => obj[h] !== undefined ? obj[h] : ''));
+}
+
+function updateBy_(name, keyCol, keyVal, patch) {
+  const sh = sheet_(name);
+  const values = sh.getDataRange().getValues();
+  const head = values[0];
+  const k = head.indexOf(keyCol);
+  for (let i = 1; i < values.length; i++) {
+	if (String(values[i][k]) === String(keyVal)) {
+	  Object.keys(patch).forEach(c => {
+		const ci = head.indexOf(c);
+		if (ci >= 0) sh.getRange(i + 1, ci + 1).setValue(patch[c]);
+	  });
+	  if (name === 'Settings') CacheService.getScriptCache().remove('settings');
+	  return true;
+	}
+  }
+  return false;
+}
+
+function upsert_(name, keyCol, keyVal, row) {
+  if (!updateBy_(name, keyCol, keyVal, row)) appendObj_(name, row);
+  if (name === 'Settings') CacheService.getScriptCache().remove('settings');
+  return true;
+}
+
+function upsertComposite_(name, cols, key, row) {
+  const sh = sheet_(name);
+  const values = sh.getDataRange().getValues();
+  const head = values[0];
+  const idx = cols.map(c => head.indexOf(c));
+  for (let i = 1; i < values.length; i++) {
+	if (idx.map(j => String(values[i][j])).join('|') === key) {
+	  sh.getRange(i + 1, 1, 1, head.length).setValues([head.map(h => row[h] !== undefined ? row[h] : values[i][head.indexOf(h)])]);
+	  return true;
+	}
+  }
+  appendObj_(name, row);
+  return true;
+}
+
+function ageFrom_(dob) {
+  const d = new Date(dob);
+  if (isNaN(d)) return '';
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  return age;
+}
+
+function id_() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 8; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+  return s;
+}
+
+function bool_(v) { return v === true || String(v).toUpperCase() === 'TRUE'; }
+function str_(v) { return v === undefined || v === null ? '' : String(v).trim(); }
+function log_(action, details) { try { sheet_('AuditLog').appendRow([new Date().toISOString(), action, details]); } catch (e) { } }
+function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }

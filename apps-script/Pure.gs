@@ -1,0 +1,182 @@
+/**
+ * Pure helpers (no SpreadsheetApp / DriveApp / CacheService).
+ * Shared global scope in Apps Script; also loadable in Node for unit tests (tests/backend).
+ */
+
+/** Public actions that write data. They run inside the script lock (see doPost). */
+const PUBLIC_WRITE_ACTIONS = ['register', 'requestAccommodation', 'finishUpload', 'deleteMedia', 'submitAnswer',
+  'sendWhisper', 'sendGift', 'markOpened'];
+
+function truthy_(v) { return v === true || String(v).toUpperCase() === 'TRUE'; }
+
+function sideOf_(relationTo) {
+  const r = String(relationTo || '');
+  if (/^bride/i.test(r)) return 'Bride';
+  if (/^groom/i.test(r)) return 'Groom';
+  return r ? 'Both' : '';
+}
+
+/** Groups used to target Events / Games: all, bride, groom, bride-family, groom-friend, family, friend, + admin Groups. */
+function groupsFor_(g, m) {
+  const out = ['all'];
+  const relTo = (m && m.RelationTo) || (g && g.RelationTo) || '';
+  const side = sideOf_(relTo) || (g && g.Side) || '';
+  const type = String((m && m.RelationType) || (g && g.RelationType) || '').toLowerCase();
+  const sides = side === 'Both' ? ['bride', 'groom', 'both'] : side ? [String(side).toLowerCase()] : [];
+  sides.forEach(s => { out.push(s); if (type) out.push(s + '-' + type); });
+  if (type) out.push(type);
+  if (/family/i.test(relTo)) sides.forEach(s => out.push(s + '-family'));
+  String((g && g.Groups) || '').split(',').map(x => x.trim().toLowerCase()).filter(String).forEach(x => out.push(x));
+  return out.filter((x, i) => out.indexOf(x) === i);
+}
+
+function matches_(targetGroups, groups) {
+  const t = String(targetGroups || 'All').split(',').map(x => x.trim().toLowerCase()).filter(String);
+  return !t.length || t.indexOf('all') >= 0 || t.some(x => groups.indexOf(x) >= 0);
+}
+
+function ageFrom_(dob, now) {
+  const d = new Date(dob);
+  if (!dob || isNaN(d)) return '';
+  now = now || new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  return age;
+}
+
+/** Drinking band: blue = non-drinker, red = under age/unknown, yellow = self-declared, green = ID verified. */
+function bandFrom_(age, legalAge, nonDrinker, verified) {
+  const legal = Number(legalAge) || 18;
+  if (truthy_(nonDrinker)) return 'blue';
+  if (age === '' || age === null || age === undefined || Number(age) < legal) return 'red';
+  return truthy_(verified) ? 'green' : 'yellow';
+}
+
+/** True when check-in happened at or before the event start. */
+function isOnTime_(checkInIso, eventIso) {
+  const c = new Date(checkInIso), e = new Date(eventIso);
+  if (!checkInIso || !eventIso || isNaN(c) || isNaN(e)) return false;
+  return c.getTime() <= e.getTime();
+}
+
+/**
+ * Picks the event a photo belongs to from its capture time.
+ * Window: from 2h before start until the next event starts (max 12h after start).
+ * events: [{ EventId, DateTime }]. Returns EventId or ''.
+ */
+function eventForTime_(events, takenIso) {
+  const t = new Date(takenIso);
+  if (!takenIso || isNaN(t)) return '';
+  const list = (events || []).filter(e => e && e.DateTime && !isNaN(new Date(e.DateTime)))
+	.map(e => ({ id: e.EventId, at: new Date(e.DateTime).getTime() }))
+	.sort((a, b) => a.at - b.at);
+  const H = 3600000;
+  for (let i = list.length - 1; i >= 0; i--) {
+	const start = list[i].at - 2 * H;
+	const next = list[i + 1] ? list[i + 1].at - 2 * H : Infinity;
+	const end = Math.min(next, list[i].at + 12 * H);
+	if (t.getTime() >= start && t.getTime() < end) return list[i].id;
+  }
+  return '';
+}
+
+/** Bride vs Groom totals from [{ side, points }]. Other sides are not counted. */
+function teamTotals_(people) {
+  const teams = { Bride: 0, Groom: 0 };
+  (people || []).forEach(p => {
+	if (p && (p.side === 'Bride' || p.side === 'Groom')) teams[p.side] += Number(p.points) || 0;
+  });
+  return teams;
+}
+
+// ---------- Helper duties (Admins.Duties, e.g. "Door,Bar") ----------
+const DUTY_ACTIONS = {
+  door: /^admin\.(checkIn|checkInMember|undoCheckIn|guests|people|household|setTable)$/,
+  bar: /^admin\.(verifyAge|verifyMember|guests|people|stats|analytics)$/,
+  gifts: /^admin\.(gifts|saveCashGift|auditGift|envelopePhoto|thankGift|thankQueue|logThanks)$/,
+  live: /^admin\.(rituals|ritualNow|stats|analytics)$/
+};
+const DUTY_TABS = { door: ['door'], bar: ['dash', 'door'], gifts: ['gifts', 'thanks'], live: ['live', 'dash'] };
+
+function dutiesOf_(v) {
+  return String(v || '').toLowerCase().split(/[\s,;|\[\]]+/).filter(d => DUTY_ACTIONS[d])
+    .filter((d, i, a) => a.indexOf(d) === i);
+}
+
+/** No duties = all helper tools (backwards compatible). login/me/analytics always allowed. */
+function dutyAllows_(duties, action) {
+  if (!duties || !duties.length) return true;
+  if (/^admin\.(login|me)$/.test(action)) return true;
+  return duties.some(d => DUTY_ACTIONS[d].test(action));
+}
+
+/** Tabs a helper sees. null = no restriction. */
+function dutyTabs_(who) {
+  if (!who || who.role !== 'helper' || !who.duties || !who.duties.length) return null;
+  const t = [];
+  who.duties.forEach(d => DUTY_TABS[d].forEach(x => { if (t.indexOf(x) < 0) t.push(x); }));
+  return t;
+}
+
+// ---------- Phones-down freeze ----------
+/** s: settings map. Returns { on, until, messageEn, messageNe }. Manual toggle, auto-until, or scheduled windows "a>b;c>d". */
+function freezeState_(s, now) {
+  s = s || {}; now = now || new Date();
+  const t = now.getTime();
+  let on = false, until = '';
+  if (truthy_(s['freeze.on'])) {
+    const u = new Date(s['freeze.until']);
+    if (!s['freeze.until'] || isNaN(u) || u.getTime() > t) { on = true; until = s['freeze.until'] || ''; }
+  }
+  if (!on) {
+    String(s['freeze.windows'] || '').split(';').forEach(w => {
+      const p = w.split('>'), a = new Date((p[0] || '').trim()), b = new Date((p[1] || '').trim());
+      if (!on && p.length === 2 && !isNaN(a) && !isNaN(b) && t >= a.getTime() && t < b.getTime()) { on = true; until = b.toISOString(); }
+    });
+  }
+  return { on: on, until: until, messageEn: on ? String(s['freeze.messageEn'] || 'Phones down!') : '', messageNe: on ? String(s['freeze.messageNe'] || '') : '' };
+}
+
+/** Returns '' if every "start>end" window parses with start < end, else a human error. Blank is valid. */
+function freezeWindowsValid_(v) {
+  const parts = String(v || '').split(';').map(w => w.trim()).filter(Boolean);
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i].split('>'), a = new Date((p[0] || '').trim()), b = new Date((p[1] || '').trim());
+    if (p.length !== 2 || isNaN(a) || isNaN(b)) return 'Window ' + (i + 1) + ' must look like 2026-02-14T10:00>2026-02-14T11:30';
+    if (a.getTime() >= b.getTime()) return 'Window ' + (i + 1) + ' ends before it starts';
+  }
+  return '';
+}
+
+// ---------- Emergency blast ----------
+/** Canonical phone key: digits only, Nepal local 10-digit mobiles get the 977 prefix so +977/local dedupe. */
+function phoneKey_(raw) {
+  let d = String(raw || '').replace(/\D/g, '').replace(/^00/, '');
+  if (/^9[78]\d{8}$/.test(d)) d = '977' + d;
+  return d;
+}
+
+/** Phones of households with nobody checked in (deduped). opts.side = Bride|Groom|''; opts.members = Members rows. */
+function blastList_(guests, opts) {
+  opts = opts || {};
+  const arrived = {};
+  (opts.members || []).forEach(m => { if (truthy_(m.CheckedIn)) arrived[m.GuestId] = 1; });
+  const seen = {}, out = [];
+  (guests || []).forEach(g => {
+    if (truthy_(g.CheckedIn) || arrived[g.GuestId] || String(g.Status) === 'Declined' || String(g.LinkActive).toUpperCase() === 'FALSE' || truthy_(g.LinkRevoked)) return;
+    if (opts.side && g.Side !== opts.side && g.Side !== 'Both') return;
+    const key = phoneKey_(g.Phone);
+    if (key.length < 7 || seen[key]) return;
+    seen[key] = 1;
+    out.push({ name: g.Name, phone: (key.length > 10 ? '+' : '') + key });
+  });
+  return { count: out.length, people: out, phones: out.map(p => p.phone).join(',') };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    PUBLIC_WRITE_ACTIONS, truthy_, sideOf_, groupsFor_, matches_, ageFrom_, bandFrom_, isOnTime_, eventForTime_, teamTotals_,
+    dutyTabs_, freezeState_, phoneKey_, blastList_, freezeWindowsValid_
+  };
+}

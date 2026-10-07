@@ -1,0 +1,441 @@
+﻿# Technical Reference — Wedding Web App
+
+This document describes the app as it exists in this repository today. It is written for developers and other technical readers. It does not describe planned work. For the roadmap, see `WEDDING_PLAN.md`.
+
+---
+
+## 1. Architecture overview
+
+| Layer | Technology | Location |
+|---|---|---|
+| Front end | Static HTML, CSS, and vanilla JavaScript (no build step, no framework) | repo root, `css/`, `js/`, `admin/` |
+| Offline / install | Service worker + Web App Manifest (PWA) | `sw.js`, `manifest.json`, `icons/` |
+| Backend API | Google Apps Script web app (one file) | `apps-script/Code.gs` |
+| Database | One Google Spreadsheet (one tab per entity) | created by `setup()` |
+| File storage | Google Drive folder `Wedding/` | created by `setup()` |
+| Local mock backend | In-browser fake API | `demo-data/demo-api.js` |
+| Hosting | Any static host (README targets GitHub Pages) | — |
+
+Request flow:
+
+```
+Browser page → js/api.js (API.call) ──POST text/plain JSON──► Apps Script doPost(e)
+					 │                                             │
+					 └── demo mode: window.DEMO_API.handle()       ├─ PUBLIC_ACTIONS / ADMIN_ACTIONS
+																   └─ SpreadsheetApp / DriveApp / CacheService
+```
+
+---
+
+## 2. Repository layout
+
+```
+index.html, register.html, signin.html, pass.html, ceremony.html, games.html,
+gift.html, photos.html, memorial.html, whisper.html, slideshow.html   guest pages
+admin/index.html, admin/nametags.html, admin/planner.html            admin pages
+css/base.css, css/mobile.css, css/memorial.css
+js/config.js, api.js, i18n.js, app.js                                 shared runtime
+js/register.js, pass.js, memorial.js, ceremony.js, games.js, gift.js,
+   photos.js                                                          guest page scripts
+js/admin.js, nametags.js, planner.js                                  admin page scripts
+apps-script/Code.gs                                                   backend (≈1,965 lines)
+demo-data/demo-api.js, demo-data/README.md                            mock backend
+drive-backup/Wedding/Sheets/*.csv, drive-backup/README.md             Drive/Sheets fallback templates
+sw.js, manifest.json, icons/                                          PWA
+start-demo.ps1                                                        local launcher
+tests/                                                                Playwright + PowerShell tests
+tools/node-v24.21.0-win-x64/                                          bundled Node.js runtime (vendor)
+```
+
+### Shared front-end scripts
+
+| File | Role |
+|---|---|
+| `js/config.js` | Sets `window.APP_CONFIG` and picks demo or prod mode. In demo mode it also injects `demo-data/demo-api.js` using `document.write`. |
+| `js/api.js` | Exposes `window.API` = `{ call, clearCache, track }`. This is the only client for the backend. |
+| `js/i18n.js` | Translation strings and language switching for `en`, `ne`, and `mix`. |
+| `js/app.js` | Shared page behavior: guest identity, config loading, theming, navigation, and the install prompt. |
+
+---
+
+## 3. Configuration
+
+### 3.1 Front end (`js/config.js`)
+
+| Key | Value / rule |
+|---|---|
+| `MODE` | `'demo'` or `'prod'`. The rules apply in this order: (1) a `?mode=demo` or `?mode=prod` query parameter, which is saved to `localStorage.appMode`; (2) the stored `appMode`; (3) `demo` when the host is `localhost` or `127.0.0.1`, or the protocol is `file:`; otherwise `prod`. |
+| `API_URL` | Apps Script `/exec` URL. It is currently the placeholder `'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE'`. |
+| `LIVE_REFRESH_MS` | `30000` |
+| `ADMIN_REFRESH_MS` | `15000` |
+| `DEMO_MODE` | `MODE === 'demo'` |
+
+> Note: `DEMO_MODE` is calculated from `MODE` and can't be set directly.
+
+### 3.2 Backend Script Properties
+
+| Property | Purpose |
+|---|---|
+| `ADMIN_PASSCODE` | Owner passcode. `setup()` sets it to `change-me-now` if it is missing. |
+| `ROOT_FOLDER_ID` | Drive ID of the `Wedding` root folder. `setup()` creates it. |
+
+### 3.3 Backend Settings tab
+
+The `Settings` sheet has the columns `Key, Value, Type, Group, Description`. `setup()` seeds it from `DEFAULT_SETTINGS`. Values are strings, and toggles are `'TRUE'` or `'FALSE'`. The server reads them through `settings_()`, which keeps them in the script cache for 30 seconds.
+
+| Group | Keys |
+|---|---|
+| General | `lang.default`, `couple.brideEn/brideNe/groomEn/groomNe`, `wedding.date`, `wedding.endDate`, `app.keepMemorialAfterEnd` |
+| Feature toggles | `feature.registration`, `feature.accommodation`, `feature.drinkBand`, `feature.nameTags`, `feature.live`, `feature.memorial`, `feature.media`, `feature.rituals`, `feature.games`, `feature.venues`, `feature.installApp`, `feature.invites`, `feature.nudges`, `feature.gifts`, `feature.sideThemes`, `feature.attended` |
+| Registration / Accommodation | `registration.open`, `accommodation.open` |
+| Drinking | `drink.legalAge` |
+| Memorial | `memorial.moderation` |
+| Media | `media.moderation`, `media.allowVisitors`, `media.maxSizeMB`, `media.audioCheck`, `media.clipPct`, `media.audioCheckMaxMB`, `media.thumbs`, `media.chronoNames`, `media.categories` |
+| Games / Engagement | `points.upload`, `engage.promptsEn`, `engage.promptsNe` (lists separated by `|`) |
+| Sign-in | `auth.phone`, `auth.google`, `auth.googleClientId`, `contact.channels`, `contact.requireEmail` |
+| Data | `data.softDelete`, `log.activity` |
+| Invitation | `invite.autoApprove`, `invite.titleEn`, `invite.titleNe` |
+| Gifts | `gift.currency`, `gift.showAmounts` |
+| Thank-you | `thanks.tplGift`, `thanks.tplPresence`, `thanks.tplNe` (placeholders: `{name} {gift} {event} {relation} {couple}`) |
+| Theme | `theme.primary`, `theme.accent`, `theme.brideColor`, `theme.groomColor`, `theme.bridePrimary`, `theme.brideAccent`, `theme.groomPrimary`, `theme.groomAccent` |
+
+`getConfig` only sends settings whose keys match `^(feature|lang|couple|wedding|theme|registration|accommodation|drink|app|media|engage|points)\.` to the browser. It also sends these keys and values:
+- the `auth.*` and `contact.*` keys
+- `closed` and `live`
+- `relationTo` and `relationTypes`
+- `venues` and `eventDates`
+
+---
+
+## 4. Client API layer (`js/api.js`)
+
+- **Transport:** `POST` to `API_URL` with `Content-Type: text/plain;charset=utf-8`, which avoids a CORS preflight. The body is `{ action, data, client: { page, ua, sid }, adminKey? }`. `adminKey` comes from `sessionStorage.adminKey` and is sent only for `admin.*` actions. A response is `{ ok, data }` or `{ ok:false, error }`.
+- **Read cache (stale-while-revalidate):** responses for the actions in `READS` are saved in `localStorage` under the key `api:<action>:<json data>`. Each action has its own TTL in seconds:
+  `getConfig 300, getHome 30, getGuest 60, getPass 120, getGallery 20, getGames 30, getLeaderboard 15, getMemorial 120, searchPeople 120, getNudges 60, getInvite 30`.
+  On a cache hit, the cached value is returned right away. The client fetches fresh data in the background when the entry is older than its TTL or when `opts.onFresh` is set. `opts.onFresh(v)` runs only if the fresh data is different. `opts.fresh` skips the cache.
+- **In-flight sharing:** identical calls that are already running share one promise.
+- **Cache clearing:** any call that isn't a cached read clears every `api:*` key and `sessionStorage.config`. These calls don't clear the cache: `admin.*`, `track`, and `checkName`.
+- **Demo mode:** calls go to `window.DEMO_API.handle(action, data)`. All `admin.*` actions except `admin.me` require `sessionStorage.adminKey === 'demo'`.
+- **Activity tracking:** `API.track(event, extra)` adds the event to a queue in `localStorage.logQueue`, which holds at most 500 events. The queue is sent as `trackBatch` (up to 200 events per send):
+  - every 10 seconds
+  - when the queue reaches 50 events
+  - on `pagehide`, on `online`, and when the page becomes hidden
+
+  The request uses `keepalive`. If the send fails, the events go back into the queue.
+
+---
+
+## 5. Backend (`apps-script/Code.gs`)
+
+### 5.1 Entry points
+
+- `doGet()` returns `{ ok:true, message:'Wedding API running' }`.
+- `doPost(e)` is the router:
+  1. **`admin.*` actions:**
+	 1. `adminWho_(adminKey)` resolves the caller. If that fails, the request is logged as `admin.denied` and returns `unauthorized`.
+	 2. `roleAllows_` checks the caller's role.
+	 3. Calls that change data take `LockService.getScriptLock()` with a 20-second wait. These are actions matching `^admin\.(save|delete|import|thank|gen|check|verify|set|approve|reject)`.
+	 4. Every call except plain reads is written to the admin activity log.
+  2. **`track` / `trackBatch`:** written to the guest activity log.
+  3. **Public actions:**
+	 - If `data.guestId` is present, `linkGuard_` runs first.
+	 - When `isClosed_()` is true (the current time is after `wedding.endDate`), every action except `getConfig` returns `error:'closed'`. Exception: `getMemorial`, `lightDiya`, and `submitMemory` still work when `app.keepMemorialAfterEnd === 'TRUE'`.
+  4. **Errors:** any thrown error becomes `{ ok:false, error: message }`.
+
+### 5.2 Public actions (`PUBLIC_ACTIONS`)
+
+`getConfig, getHome, getGuest, register, requestAccommodation, getPass, getLive, getRituals, startUpload, finishUpload, getGallery, deleteMedia, getGames, submitAnswer, getLeaderboard, getMemorial, lightDiya, submitMemory, signIn, resolveCode, markAttended, chooseVenue, searchPeople, checkName, getNudges, requestInvite, getInvite, submitProof, getGiftInfo, sendWhisper, sendGift`.
+
+### 5.3 Admin actions (`ADMIN_ACTIONS`)
+
+| Area | Actions |
+|---|---|
+| Session | `admin.login`, `admin.me` |
+| Dashboard | `admin.stats`, `admin.analytics`, `admin.logs` |
+| Guests / members | `admin.guests`, `admin.people`, `admin.saveGuest`, `admin.household`, `admin.deleteGuest`, `admin.saveMember`, `admin.deleteMember`, `admin.importGuests`, `admin.genCodes`, `admin.linkControl`, `admin.checkIn`, `admin.checkInMember`, `admin.verifyAge`, `admin.verifyMember`, `admin.setAccommodationEligible` |
+| Rooms | `admin.rooms`, `admin.saveRoom`, `admin.assignRoom` |
+| Settings | `admin.settings`, `admin.saveSetting` |
+| Events / rituals / live | `admin.events`, `admin.rituals`, `admin.saveRitual`, `admin.ritualNow`, `admin.postLive` |
+| Media | `admin.media`, `admin.mediaExport`, `admin.moderateMedia`, `admin.mediaNote` |
+| Games / proofs | `admin.games`, `admin.saveGame`, `admin.proofs`, `admin.moderateProof` |
+| Memorial | `admin.memories`, `admin.moderateMemory`, `admin.saveMom` |
+| Venues | `admin.venues`, `admin.saveVenue`, `admin.deleteVenue` |
+| Planner | `admin.planner`, `admin.saveVibe/deleteVibe`, `admin.saveTradition/deleteTradition`, `admin.saveScenario/deleteScenario` |
+| Invitations | `admin.invites`, `admin.approveInvite`, `admin.rejectInvite` |
+| Gifts / thanks | `admin.gifts`, `admin.thankGift`, `admin.saveCashGift`, `admin.envelopePhoto`, `admin.thankQueue`, `admin.logThanks` |
+| Admin users | `admin.admins` (passcodes masked as `••••xx`), `admin.saveAdmin`, `admin.deleteAdmin` (sets `Active=FALSE`) |
+| Whispers | `admin.whispers` |
+
+### 5.4 Authentication and roles
+
+- **Owner:** the key equals Script Property `ADMIN_PASSCODE`, which gives `{ name:'Owner', role:'owner' }`.
+- **Other admins:** a row in the `Admins` sheet with a matching `Passcode` and `Active` not set to `FALSE`. A successful sign-in updates `LastSeen`. `admin.saveAdmin` creates the passcode as `id_() + id_().slice(0,4)` for a new admin or when `reset` is set.
+- **`roleAllows_`:**
+  - **owner:** every action.
+  - **manager:** every action except `saveSetting`, `admins`, `saveAdmin`, `deleteAdmin`, and `logs`.
+  - **helper:** only `login, me, stats, guests, people, household, checkIn, checkInMember, verifyAge, verifyMember, gifts, saveCashGift, thankGift, thankQueue, logThanks, analytics, envelopePhoto, rituals, ritualNow`.
+- **Guests:** guests have no password. They are identified by `guestId` (link `?g=`) or `InviteCode` (link `?c=`, resolved by `resolveCode`). They can also sign in through `signIn` (phone, Google, or both, based on the `auth.*` settings). `memberId` picks a member of the household. If it is missing, the primary member (`IsPrimary`) is used.
+- **Link control (`linkGuard_`):** rejects a request when `Guests.LinkRevoked` is true or `LinkExpires` is in the past. Admins change these fields with `admin.linkControl`, which takes `{ guestId, revoked?, expires?, newCode? }`.
+
+### 5.5 Audience targeting
+
+`groupsFor_(guest, member)` builds a list of tags that always includes `all`. It adds:
+- the side: `bride`, `groom`, or `both`
+- side plus type, for example `bride-friend`
+- the type on its own
+- `<side>-family` when the relation is family
+- the guest's own `Groups`, lowercased
+
+`matches_(targetGroups, groups)` compares an Events or Games `Groups` cell (a comma-separated list, where `All` matches everyone) against that list. `sideOf_` works out the side from `RelationTo`, using the values in `RELATION_TO` = `Bride, Groom, Bride's family, Groom's family, Both`. `RELATION_TYPES` = `Family, Friend, Colleague, Neighbor, Other`.
+
+### 5.6 Media upload flow
+
+1. `startUpload`:
+   1. Checks `feature.media`, the identity (or a visitor name when `media.allowVisitors` is on), that the MIME type is `image/*` or `video/*`, and that the file is under `media.maxSizeMB`.
+   2. Builds the file name. When `media.chronoNames` is on, the format is `Event_yyyy-MM-dd_HH-mm-ss_FirstName_Original`.
+   3. Opens a **Drive v3 resumable upload session** into `eventFolder_(eventId)`, using the script owner's OAuth token.
+   4. Stores the upload details in the script cache under `up_<uuid>` for 6 hours.
+   5. Returns `{ uploadUrl, token }`.
+2. The browser uploads the file bytes directly to `uploadUrl`.
+3. `finishUpload`:
+   1. Checks that the token is valid, that the file is inside the Uploads folder (directly or in a subfolder one level down), and that it isn't a duplicate.
+   2. Sets **anyone-with-link VIEW** sharing (skipped for `gift` and `whisper` uploads) and renames anonymous files.
+   3. Saves an optional JPEG data-URL thumbnail if it is under 45,000 characters, and appends a `Media` row.
+   4. Returns `{ pending: media.moderation, media }`.
+
+Client side (`App.uploadFile` in `js/app.js`): raw binary `PUT` in 8 MB chunks with `Content-Range`, resume from Drive's `308 Range` header after network loss, exponential retry, and progress events. Apps Script never touches file bytes, so there is no Base64 bloat or 50 MB `doPost` limit. Before upload, `App.compressImage(file, maxBytes, 2048)` re-encodes photos larger than `media.compressMB` (default 1.5) to JPEG when the guest leaves "Save mobile data" on; videos are always sent as originals. A wake lock and a "keep this page open" notice reduce background-tab aborts.
+
+### 5.6a Lost-link recovery and sessions
+
+- `findPass { phone, name }`: matches the last 10 phone digits **and** a word of the household name, family name, or a member's name. Exactly one match is required (ambiguous or wrong input sleeps 800 ms and fails); `linkGuard_` still blocks revoked/expired links. Returns the same shape as `signIn`.
+- `guestId`, `memberId`, and `household` live in `localStorage` with no expiry; only **Sign out** clears them.
+
+### 5.6b Offline-first door check-in (`js/door.js`)
+
+| Key | Contents |
+|---|---|
+| `door_list` | `{ guests, people, savedAt }` from `admin.guests` + `admin.people`, downloaded when the Door tab opens |
+| `pending_checkins` | `[{ guestId, memberId, at }]` queued check-ins |
+
+Check-ins are applied locally first (optimistic), de-duplicated, re-applied after a list refresh, and synced every 20 s and on `online`. `admin.checkIn` / `admin.checkInMember` accept `at`; `checkInAt_` keeps it only if it is within the last 3 days and not in the future. QR text is `GuestId`, `GuestId:MemberId`, or a `pass.html?g=` URL. Camera scanning uses native `BarcodeDetector` when available; otherwise volunteers type 2–3 letters. `admin/` is not cached by the service worker, so open the Door tab online once in the morning.
+
+### 5.6c Field UX rules
+
+- In-app webviews (`App.inAppBrowser`): banner asking to open in Chrome/Safari; Google sign-in hidden.
+- Mixed language: `I18N.biHtml` renders `.bi-ne` + `.bi-en`; under 640px they stack vertically.
+- Tap targets ≥48px; cards never use fixed heights.
+- Rituals use statuses (upcoming / now / done, plus an "Up next" badge), never second-level countdowns.
+- Pass QR: white padded canvas regardless of theme, plus a brightness reminder.
+
+### 5.7 Caching (server)
+
+`CacheService.getScriptCache()` keys:
+
+| Key | Contents | Lifetime |
+|---|---|---|
+| `settings` | Settings values | 30 s |
+| `config` | Public config | 60 s |
+| `up_<token>` | Pending upload details | 6 h |
+
+Writes to most tabs clear `config`. Writes to `Settings` also clear `settings`.
+
+### 5.8 Setup, Drive layout, and scheduled jobs
+
+`setup()` can be run again safely. It does the following:
+- creates each tab in `SHEETS`, or adds any missing columns to an existing tab
+- freezes and bolds the header row
+- seeds `DEFAULT_SETTINGS`, `DEFAULT_MOM`, and sample Games, Rituals, Traditions, and Scenarios when those tabs are empty
+- sets the Script Properties
+- creates the Drive folders
+- installs a daily `nightlyBackup` trigger at 03:00
+- deletes the default `Sheet1`
+- clears the cache
+
+> Note: `setup()` calls `ss.deleteSheet(ss.getSheetByName('Sheet1'))` without checking that `Sheet1` exists.
+
+Drive tree under the `Wedding` root:
+- `Data` (the spreadsheet is moved here)
+- `Uploads/<event>`
+- `Gift QR`
+- `Envelopes`
+- `Logs`
+- `Invites`
+- `Proofs`
+- `Mom`
+- `Backups`
+
+`nightlyBackup()` copies the spreadsheet to `Backups/Wedding data yyyy-MM-dd` and keeps the newest 30 copies. Activity logs are separate spreadsheets in `Logs`, one for `guest` and one for `admin`, created through `logBook_(kind)`.
+
+---
+
+## 6. Data model (spreadsheet tabs)
+
+The column order below matches `SHEETS` in `Code.gs` and the header rows of `drive-backup/Wedding/Sheets/*.csv`.
+
+| Tab | Columns |
+|---|---|
+| Settings | Key, Value, Type, Group, Description |
+| Guests | GuestId, Name, NameNe, Family, Side, Relation, RelationNe, Groups, Phone, Email, DOB, Age, NonDrinker, AgeVerified, AdmitCount, AttendingCount, Status, Meal, Allergies, Arrival, Departure, AccommodationEligible, Table, InviteSent, InviteOpened, Registered, GoogleEmail, VenueId, Tags, InviteCode, LinkRevoked, LinkExpires |
+| Members | MemberId, GuestId, Name, NameNe, RelationTo, RelationType, Relation, RelationNe, DOB, NonDrinker, AgeVerified, Attending, IsPrimary, CheckedIn, CheckedInAt, CreatedAt |
+| Events | EventId, NameEn, NameNe, DateTime, Venue, MapLink, DressCode, RevealStyle, UnlockAt, Groups, Order, Visible |
+| EventRsvp | GuestId, EventId, Response, Count, UpdatedAt, Attended, AttendedCount, AttendedAt |
+| Admins | Email, Name, Role, Passcode, Active, AddedAt, LastSeen |
+| ThankYous | ThankId, GuestId, GiftId, Name, Channel, To, Message, SentBy, SentAt |
+| Rooms | RoomId, Name, Location, Capacity, CheckIn, CheckOut, Notes |
+| Accommodation | RequestId, GuestId, Nights, People, Needs, Status, RoomId, UpdatedAt |
+| Media | MediaId, GuestId, MemberId, Name, Side, EventId, DriveFileId, Type, MimeType, FileName, Status, Timestamp, TakenAt, Device, SizeBytes, Anon, AudioFlag, ClipPct, Thumb, Category, Transcript, Summary, Starred |
+| Whispers | WhisperId, GuestId, MemberId, Name, Side, Text, MediaId, DriveFileId, Timestamp, Device, Session, Status |
+| Games | GameId, Type, TitleEn, TitleNe, QuestionEn, QuestionNe, OptionsEn, OptionsNe, Answer, Points, Groups, Active, Order |
+| Scores | GuestId, MemberId, Name, Side, GameId, Correct, Points, Timestamp |
+| Live | Timestamp, MessageEn, MessageNe, Active |
+| Rituals | RitualId, EventId, Order, Icon, NameEn, NameNe, MeaningEn, MeaningNe, Status, StartedAt, Visible |
+| MomProfile | Key, Value |
+| MomMemories | MemoryId, GuestId, Name, Relation, Type, Text, DriveFileId, Status, IsPrivate, Timestamp |
+| MomDiyas | GuestId, Name, Blessing, Timestamp |
+| Venues | VenueId, NameEn, NameNe, Address, Country, Lat, Lng, MapLink, Notes, Selectable, Order |
+| Vibe* | PersonId, Side, Label, Circle, Attendance, AgeBand, EduProf, Fun, Confirmed, Notes |
+| Traditions* | TraditionId, Name, Origin, Description, OurVersion, Phase, Include, VibeBoost, Owner, Notes |
+| Scenarios* | ScenarioId, Name, Region, Window, Weeks, Condition, Budget, Currency, Pros, Cons, Chosen |
+| Invites | InviteId, GuestId, Name, NameNe, Lang, Status, DriveFileId, RequestedAt, ApprovedAt, Hidden |
+| Proofs | ProofId, GuestId, MemberId, Name, Side, GameId, DriveFileId, Status, Points, Timestamp, Hidden |
+| Gifts | GiftId, GuestId, MemberId, Name, Side, Method, Amount, Currency, Note, ProofFileId, Status, Timestamp, ThankedAt, Relation, Source, Phone, EventId, Anon, ThankedVia, EnteredBy, PhotoId |
+| AuditLog | Timestamp, Action, Details |
+
+\* Admin-only planning tabs. No public action returns them.
+
+Booleans are stored as the strings `TRUE`, `FALSE`, or empty. Dates are stored as ISO-like strings.
+
+---
+
+## 7. Front-end pages
+
+| Page | Script(s) | Purpose |
+|---|---|---|
+| `index.html` | `app.js` | Guest home: next event, live banner, gallery preview, leaderboard, daily prompt |
+| `signin.html` | `app.js` | Sign in with invite code, phone, or Google |
+| `register.html` | `register.js` | Household registration, RSVP for each event, meal, travel, accommodation |
+| `pass.html` | `pass.js` | Personal guest pass with QR code |
+| `ceremony.html` | `ceremony.js` | "Pocket Pandit" live ritual guide |
+| `photos.html` | `photos.js` | Photo and video upload and gallery |
+| `slideshow.html` | — | Gallery slideshow |
+| `games.html` | `games.js` | Quizzes, screenshot challenges, leaderboard |
+| `gift.html` | `gift.js` | Digital gift / salami page (QR images from Drive) |
+| `whisper.html` | — | Anonymous messages to the couple |
+| `memorial.html` | `memorial.js`, `css/memorial.css` | Memorial for Mom: light a diya, share memories |
+| `admin/index.html` | `admin.js` | Admin console: guests, check-in, settings, media, gifts, and more |
+| `admin/nametags.html` | `nametags.js` | Printable name tags and wristbands |
+| `admin/planner.html` | `planner.js` | Planning tabs: Vibe, Traditions, Scenarios |
+
+Guest state is kept in `localStorage`. Keys include `guestId`, `memberId`, `appMode`, `api:*`, `logQueue`, and, in demo mode, `demoDB`. Admin state is kept in `sessionStorage.adminKey`.
+
+---
+
+## 8. PWA and offline behavior
+
+- `manifest.json`: `display: standalone`, `orientation: portrait`, `scope: ./`. Icons are 192 px, 512 px, and a maskable 512 px.
+- `sw.js`:
+  - **Caches:** `wedding-v8` holds the app shell (every guest page, CSS, JS, manifest, and icons). `wedding-thumbs` holds Drive thumbnails.
+  - **Install / activate:** install pre-caches the shell and calls `skipWaiting`. Activate deletes old caches and calls `clients.claim`.
+  - **Not handled by the service worker:**
+	- non-GET requests (all API calls are POST, so they always go to the network)
+	- `/admin/` paths
+	- Google hosts other than Drive thumbnails and fonts
+  - **Drive thumbnails** (`drive.google.com/thumbnail`): served from cache first, with at most about 300 entries.
+  - **Page navigations:** the cached page is shown right away (ignoring the query string) while a fresh copy is fetched in the background. Offline, the fallback is `index.html`.
+  - **Other assets:** served from cache first and refreshed in the background.
+- Changing a shell file needs a `CACHE` version bump so that clients pick up the update.
+
+---
+
+## 9. Demo mode
+
+`demo-data/demo-api.js` defines `window.DEMO_API.handle(action, data)`. It is an in-browser stand-in for `Code.gs` that uses fake data and saves changes to `localStorage.demoDB`.
+- Every page shows a "Demo data" pill with a **Reset** button.
+- The admin passcode is `demo`.
+- The demo guest is *Hari Sharma*, invite code `DEMO01`. Codes `DEMO02` to `DEMO06` also exist.
+- Uploads are disabled in demo mode.
+
+---
+
+## 10. Running locally
+
+```powershell
+.\start-demo.ps1                 # demo mode, port 8080
+.\start-demo.ps1 -Mode prod      # real backend (requires API_URL)
+```
+
+The script starts `python -m http.server <Port>` if nothing is already serving `index.html`. It then opens `index.html`, `ceremony.html`, and `admin/index.html` in Chrome, with `?mode=` set. Any static server works too, for example `npx serve .`.
+
+---
+
+## 11. Deployment
+
+1. Create a Google Sheet with a personal account. Open **Extensions → Apps Script**, paste in `apps-script/Code.gs`, and run `setup`.
+2. Change `ADMIN_PASSCODE` in Script Properties.
+3. Choose **Deploy → Web app**, with **Execute as: Me** and **Who has access: Anyone**. Copy the `/exec` URL into `API_URL` in `js/config.js`.
+4. Publish the repo root to a static host. The README uses GitHub Pages, and HTTPS is required for the PWA.
+5. After you edit `Code.gs`, choose **Manage deployments → Edit → New version** so that the URL stays the same.
+
+`drive-backup/` mirrors the Drive and Sheets structure as CSV templates. Use it to restore a missing tab (import the CSV, then run `setup()` again) and as a template for importing guests.
+
+---
+
+## 12. Testing
+
+| Suite | Command | What it does |
+|---|---|---|
+| Playwright E2E | `cd tests; npm install; npm test` | Runs `playwright test`. The server is `node server.js`, a static file server on `127.0.0.1:8199` with `Cache-Control: no-store`. Tests use the Chrome channel, run headless, block service workers, and use 1 worker. |
+| Link-control tests | `.\tests\Run-Tests.ps1` | Runs `tests/link-control.test.html` in headless Chrome against the demo API, then runs static regex checks on `Code.gs`, `admin.js`, and `Guests.csv` (link revoke, expiry, and new code). |
+| Backend unit tests | `npm run backend` | Runs `node --test backend/`. **Note: the `tests/backend/` folder doesn't exist yet.** |
+
+E2E details:
+- `tests/e2e/fixtures.js` adds these helpers: `openDemo`, `resetDemo`, and `adminLogin` (sets `adminKey='demo'`).
+- Any uncaught page error fails the test unless the test has the `allow-errors` annotation.
+- The fixtures also collect JS coverage through `monocart-coverage-reports`. `coverage.config.js` holds the settings. `e2e/coverage-teardown.js` writes the report to `tests/coverage/`, including `coverage-summary.json`.
+
+Specs:
+- `pages.spec.js`: every guest page and admin page loads in demo mode without errors.
+- `crawl.spec.js`: a crawl of the site in demo mode.
+
+---
+
+## 13. Known gaps in existing docs
+
+These are differences between the existing docs and the code today:
+- `tests/package.json` has a `backend` script, but there is no `tests/backend/` folder.
+- In `setup()`, deleting `Sheet1` fails if that sheet doesn't exist.
+
+## Hardening update
+
+### Apps Script files
+Paste **all** of `apps-script/*.gs` into the project (Code.gs, Pure.gs, Live.gs, Health.gs). They share one global scope. Then run `setup` again.
+
+### Script Properties
+| Key | Purpose |
+|---|---|
+| `ADMIN_PASSCODE` | Owner passcode |
+| `GITHUB_TOKEN` | Fine-grained PAT (this repo, Contents read/write) used to publish `live.json` |
+| `GITHUB_REPO` | `owner/repo` |
+| `GITHUB_BRANCH` / `GITHUB_PATH` | Optional (default `main` / `live.json`) |
+
+### New settings
+`points.checkIn`, `points.onTime`, `feature.elderMode`, `app.helpPhone`, `media.largeAlbumUrl`.
+
+### Live feed
+Admin/public writes -> `publishLive_()` (throttled to 60 s, plus a 5-minute trigger) -> GitHub `live.json` -> phones poll every 20 s (`App.liveFeed`). If the file is unavailable, phones fall back to `getLive`. The service worker never caches `live.json`.
+
+### Concurrency and cache
+Public writes listed in `PUBLIC_WRITE_ACTIONS` run in `withLock_`. `getGuest` and `getPass` responses are cached per guest version and invalidated on writes. The cache TTL is capped at the next event unlock.
+
+### New actions
+`admin.memoryBook` provides approved memories, the profile, and diyas for the printable book. Public uploads auto-route to an event by capture time (`eventForTime_`).
+
+### Monitoring
+The hourly `healthCheck` trigger checks mail quota, recent errors, the Drive folder, and `live.json`, then emails the owner. See `docs/DAY_OF.md`.
+
+### Tests
+- `cd tests; npm run backend`: Node unit tests for `Pure.gs`, demo/prod parity, and secret scan.
+- `cd tests; npm test`: Playwright, including `e2e/features.spec.js`.
+- `tests/Run-Tests.ps1`: static wiring checks.
+- `node tests/load/load-test.js <API_URL> 50`: load rehearsal.
+

@@ -1,0 +1,74 @@
+﻿// Thin client for the Apps Script API (free). Uses text/plain POST to avoid CORS preflight.
+// Speed: read-only calls are answered instantly from the phone's cache (stale-while-revalidate),
+// identical in-flight calls are shared, and writes clear the cache.
+window.API = (function () {
+  const READS = { getConfig: 60, getHome: 30, getGuest: 30, getPass: 60, getGallery: 20, getGames: 30, getLeaderboard: 15, getMemorial: 60 };
+  const inflight = {};
+
+  function key(action, data) { return 'api:' + action + ':' + JSON.stringify(data || {}); }
+
+  function read(k) {
+    try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; }
+  }
+
+  function write(k, v) {
+    try { localStorage.setItem(k, JSON.stringify({ t: Date.now(), v: v })); }
+    catch (e) { clear(); }
+  }
+
+  function clear() {
+    Object.keys(localStorage).filter(k => k.indexOf('api:') === 0).forEach(k => localStorage.removeItem(k));
+    sessionStorage.removeItem('config');
+  }
+
+  async function fetchApi(action, data) {
+    const url = window.APP_CONFIG.API_URL;
+    if (!url || url.indexOf('http') !== 0) throw new Error('API_URL not configured in js/config.js');
+    const body = { action: action, data: data || {} };
+    if (action.indexOf('admin.') === 0) body.adminKey = sessionStorage.getItem('adminKey') || '';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Request failed');
+    return json.data;
+  }
+
+  function live(action, data) {
+    const k = key(action, data);
+    if (!inflight[k]) {
+      inflight[k] = fetchApi(action, data)
+        .then(v => { if (READS[action]) write(k, v); return v; })
+        .finally(() => delete inflight[k]);
+    }
+    return inflight[k];
+  }
+
+  /**
+   * call(action, data, opts)
+   *  opts.fresh   - skip cache
+   *  opts.onFresh - callback(data) when newer data arrives after a cached answer was returned
+   */
+  async function call(action, data, opts) {
+    opts = opts || {};
+    const ttl = READS[action];
+    if (!ttl) {
+      const v = await live(action, data);
+      if (action.indexOf('admin.') !== 0) clear();
+      return v;
+    }
+    const hit = opts.fresh ? null : read(key(action, data));
+    if (hit) {
+      const age = (Date.now() - hit.t) / 1000;
+      if (age > ttl || opts.onFresh) {
+        live(action, data).then(v => { if (opts.onFresh && JSON.stringify(v) !== JSON.stringify(hit.v)) opts.onFresh(v); }).catch(() => { });
+      }
+      return hit.v;
+    }
+    return live(action, data);
+  }
+
+  return { call: call, clearCache: clear };
+})();

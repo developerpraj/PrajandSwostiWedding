@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ne">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <title>शुभविवाह · Live</title>
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: system-ui, "Noto Sans Devanagari", sans-serif; overflow: hidden; }
+    .stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .stage img, .stage iframe { max-width: 100%; max-height: 100%; border: 0; opacity: 0; transition: opacity 1.2s; }
+    .stage iframe { width: 100%; height: 100%; }
+    .stage .on { opacity: 1; }
+    .cap { position: fixed; left: 0; right: 0; bottom: 0; padding: 1rem 1.5rem; background: linear-gradient(transparent, rgba(0,0,0,.75)); font-size: 1.4rem; }
+    .title { position: fixed; top: .8rem; left: 1rem; font-size: 1.1rem; opacity: .8; }
+    .qr { position: fixed; right: 1rem; bottom: 1rem; background: #fff; padding: .4rem; border-radius: 8px; }
+    .empty { font-size: 2rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="title">🪔 <span data-i18n="slide.title">Live wedding moments</span></div>
+  <div class="stage" id="stage"><div class="empty">📸 …</div></div>
+  <div class="cap" id="cap"></div>
+  <div class="qr" id="qr" title="Scan to share photos"></div>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script>
+    // Full-screen projector slideshow. New uploads appear automatically. Click = fullscreen.
+    (async function () {
+      const stage = document.getElementById('stage');
+      const cap = document.getElementById('cap');
+      const big = id => 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w1920';
+      let items = [], seen = {}, fresh = [], i = 0;
+      I18N.apply && I18N.apply();
+      const site = location.origin + location.pathname.replace(/slideshow\.html$/, '');
+      if (window.QRCode) new QRCode(document.getElementById('qr'), { text: site + 'photos.html', width: 110, height: 110 });
+
+      async function load() {
+        try {
+          const list = await API.call('getGallery', { guestId: '' }, { fresh: true });
+          list.forEach(m => { if (!seen[m.id]) { seen[m.id] = 1; if (items.length) fresh.push(m); items.push(m); } });
+        } catch (e) { /* keep showing what we have */ }
+      }
+      function show() {
+        if (!items.length) return;
+        const m = fresh.length ? fresh.shift() : items[i++ % items.length];
+        let el;
+        if (m.type === 'video') { el = document.createElement('iframe'); el.src = 'https://drive.google.com/file/d/' + encodeURIComponent(m.fileId) + '/preview'; el.allow = 'autoplay'; }
+        else { el = document.createElement('img'); el.src = big(m.fileId); el.alt = ''; }
+        const done = () => { stage.innerHTML = ''; stage.appendChild(el); requestAnimationFrame(() => el.classList.add('on')); };
+        if (el.tagName === 'IMG') { el.onload = done; el.onerror = () => setTimeout(show, 100); } else done();
+        cap.textContent = '📸 ' + (m.name || '') + (m.side ? ' · ' + I18N.t('side.' + m.side) : '');
+        clearTimeout(show.t);
+        show.t = setTimeout(show, m.type === 'video' ? 20000 : 7000);
+      }
+      document.body.onclick = () => document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => { });
+      await load();
+      show();
+      setInterval(load, 20000);
+    })();
+  </script>
+</body>
+</html>

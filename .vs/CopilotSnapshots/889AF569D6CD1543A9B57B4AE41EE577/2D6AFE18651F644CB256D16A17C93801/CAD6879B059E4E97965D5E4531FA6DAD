@@ -1,0 +1,17 @@
+﻿// Thin client for the Apps Script API (free). Uses text/plain POST to avoid CORS preflight.
+window.API = {
+  async call(action, data) {
+    const url = window.APP_CONFIG.API_URL;
+    if (!url || url.indexOf('http') !== 0) throw new Error('API_URL not configured in js/config.js');
+    const body = { action: action, data: data || {} };
+    if (action.indexOf('admin.') === 0) body.adminKey = sessionStorage.getItem('adminKey') || '';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Request failed');
+    return json.data;
+  }
+};

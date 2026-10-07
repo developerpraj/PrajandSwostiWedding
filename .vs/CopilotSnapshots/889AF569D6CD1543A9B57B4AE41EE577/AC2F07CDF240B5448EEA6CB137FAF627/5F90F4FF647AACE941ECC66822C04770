@@ -1,0 +1,284 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>Admin · Wedding</title>
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🪔 Admin</div>
+    <nav>
+      <a href="../index.html">Site</a>
+      <a href="nametags.html">Name Tags &amp; Bands</a>
+      <a href="planner.html">🔥 Brahma Bibaha Planner</a>
+      <a href="#" id="logout" hidden>Logout</a>
+    </nav>
+    <div class="lang-switch" id="langSwitch"></div>
+  </header>
+
+  <main style="max-width:1200px">
+    <div id="msg" class="msg" hidden></div>
+
+    <form id="loginForm" class="card" style="max-width:400px;margin:auto">
+      <h2>Admin Login</h2>
+      <label>Passcode</label>
+      <input type="password" name="key" required autocomplete="current-password" />
+      <p><button class="btn">Login</button></p>
+    </form>
+
+    <div id="app" hidden>
+      <div class="tabs" id="tabs">
+        <button data-tab="dash" class="active">📊 Live Dashboard</button>
+        <button data-tab="guests">👥 Guests</button>
+        <button data-tab="acc">🏨 Accommodation</button>
+        <button data-tab="people">👪 People</button>
+        <button data-tab="media">📷 Photos</button>
+        <button data-tab="games">🎲 Games</button>
+        <button data-tab="live">📣 Live</button>
+        <button data-tab="memorial">🪔 Memorial</button>
+        <button data-tab="analytics">📈 Analytics</button>
+        <button data-tab="gifts">🎁 Gifts</button>
+        <button data-tab="thanks">💌 Thank-yous</button>
+        <button data-tab="invites">✉️ Invitations</button>
+        <button data-tab="team" data-role="owner">🛡️ Team</button>
+        <button data-tab="settings" data-role="owner">⚙️ Settings</button>
+      </div>
+
+      <!-- Dashboard -->
+      <section class="panel active" id="panel-dash">
+        <p class="muted">Auto-refreshes every 15 seconds · Last update: <span id="updatedAt">–</span></p>
+        <div class="grid" id="stats"></div>
+        <div class="grid">
+          <div class="card"><h3>Per-event headcount</h3><div class="table-wrap"><table id="perEvent"></table></div></div>
+          <div class="card"><h3>Meals (attending people)</h3><table id="meals"></table></div>
+          <div class="card"><h3>Drinking bands</h3><table id="bands"></table></div>
+          <div class="card"><h3>Accommodation</h3><table id="accStats"></table></div>
+        </div>
+        <p><button class="btn ghost sm" id="exportCsv">⬇️ Export guests CSV</button></p>
+      </section>
+
+      <!-- Guests -->
+      <section class="panel" id="panel-guests">
+        <form class="card" id="guestForm">
+          <h3>Add / edit guest</h3>
+          <input type="hidden" name="GuestId" />
+          <div class="grid">
+            <div><label>Name</label><input name="Name" required /></div>
+            <div><label>Name (Nepali)</label><input name="NameNe" /></div>
+            <div><label>Family</label><input name="Family" /></div>
+            <div><label>Side</label><select name="Side"><option>Bride</option><option>Groom</option><option>Both</option></select></div>
+            <div><label>Relation</label><input name="Relation" /></div>
+            <div><label>Relation (Nepali)</label><input name="RelationNe" /></div>
+            <div><label>Groups (comma separated)</label><input name="Groups" placeholder="Family, VIP" /></div>
+            <div><label>Tags</label><input name="Tags" list="tagList" placeholder="Groom's Family, VIP/Elders" /></div>
+            <div><label>Invite code</label><input name="InviteCode" placeholder="auto" maxlength="10" /></div>
+            <div><label>Phone</label><input name="Phone" /></div>
+            <div><label>Email</label><input name="Email" type="email" /></div>
+            <div><label>Admit count</label><input name="AdmitCount" type="number" min="1" value="1" /></div>
+            <div><label>Table</label><input name="Table" /></div>
+            <div><label class="check"><input type="checkbox" name="AccommodationEligible" /> Offer accommodation</label></div>
+          </div>
+          <p><button class="btn">Save guest</button> <button type="reset" class="btn ghost">Clear</button></p>
+        </form>
+
+        <div class="card">
+          <h3>Import CSV</h3>
+          <p class="muted">Header row: Name,NameNe,Family,Side,Relation,RelationNe,Groups,Phone,Email,AdmitCount,AccommodationEligible</p>
+          <input type="file" id="csvFile" accept=".csv" />
+        </div>
+
+        <div class="card">
+          <div class="toolbar">
+            <input id="guestSearch" type="search" placeholder="Search name, phone, relation, code…" />
+            <select id="guestTag"><option value="">All tags</option></select>
+            <select id="guestSort"><option value="Name">Sort: Name</option><option value="Side">Side</option><option value="Status">Status</option><option value="AttendingCount">Headcount</option><option value="RegisteredAt">Recently registered</option></select>
+            <button class="btn ghost sm" type="button" id="genCodes">🔑 Generate missing codes</button>
+          </div>
+          <datalist id="tagList"><option value="Groom's Family"><option value="Bride's Family"><option value="US / International"><option value="VIP/Elders"><option value="Friends"><option value="Colleagues"></datalist>
+          <p class="muted" id="guestCount"></p>
+          <div class="table-wrap"><table id="guestTable"></table></div>
+        </div>
+        <dialog id="hhDlg" class="sheet wide"><div id="hhBody"></div></dialog>
+      </section>
+
+      <!-- Accommodation -->
+      <section class="panel" id="panel-acc">
+        <form class="card" id="roomForm">
+          <h3>Add room / hotel</h3>
+          <input type="hidden" name="RoomId" />
+          <div class="grid">
+            <div><label>Name</label><input name="Name" required /></div>
+            <div><label>Location</label><input name="Location" /></div>
+            <div><label>Capacity (people)</label><input name="Capacity" type="number" min="1" value="2" /></div>
+            <div><label>Check-in</label><input name="CheckIn" type="date" /></div>
+            <div><label>Check-out</label><input name="CheckOut" type="date" /></div>
+            <div><label>Notes</label><input name="Notes" /></div>
+          </div>
+          <p><button class="btn">Save room</button></p>
+        </form>
+        <div class="card"><h3>Rooms</h3><div class="table-wrap"><table id="roomTable"></table></div></div>
+        <div class="card"><h3>Requests</h3><div class="table-wrap"><table id="reqTable"></table></div></div>
+      </section>
+
+      <!-- People (every remembered person incl. relatives) -->
+      <section class="panel" id="panel-people">
+        <div class="card"><h3>Everyone &amp; relationships</h3><input id="peopleSearch" placeholder="Search name / relation" />
+          <div class="table-wrap"><table id="peopleTable"></table></div></div>
+      </section>
+
+      <!-- Photos -->
+      <section class="panel" id="panel-media">
+        <div class="card"><h3>Venue QR for photo uploads</h3>
+          <p class="muted">Print and place on tables. Anyone scanning can upload &amp; view; download only.</p>
+          <div id="photoQr"></div><p><a id="photoLink" target="_blank"></a></p>
+          <p><button class="btn" type="button" onclick="window.print()">Print QR poster</button></p></div>
+        <div class="card"><h3>🎬 Wedding video material</h3>
+          <p class="muted">All originals at full quality, sorted by event &amp; time taken (includes items guests "deleted"). Drive folder: Wedding/Uploads/&lt;Event&gt;.</p>
+          <p class="btn-row"><button class="btn sm" type="button" id="exportMedia">⬇️ Export media list (CSV)</button>
+          <a class="btn ghost sm" href="../slideshow.html" target="_blank">📽️ Open live slideshow</a></p></div>
+        <div class="card"><h3>Per-event upload QR cards</h3><p class="muted">Print one per venue/function. Scanning preselects the event and opens the picker in one tap.</p><div class="grid" id="mediaQrs"></div></div>
+        <div class="card"><h3>Uploads (moderation)</h3>
+          <div class="toolbar"><input id="mediaSearch" type="search" placeholder="Search name, transcript, summary…"><select id="mediaFilter"><option value="">All</option><option value="star">⭐ For editor</option><option value="guestbook">Video guestbook</option><option value="muted">🔇 Muted B-roll</option></select></div>
+          <div class="table-wrap"><table id="mediaTable"></table></div></div>
+      </section>
+
+      <!-- Games -->
+      <section class="panel" id="panel-games">
+        <form class="card" id="gameForm">
+          <h3>Add / edit game</h3>
+          <input type="hidden" name="GameId" />
+          <div class="grid">
+            <div><label>Title (English)</label><input name="TitleEn" required /></div>
+            <div><label>Title (नेपाली)</label><input name="TitleNe" /></div>
+            <div><label>Question (English)</label><input name="QuestionEn" /></div>
+            <div><label>Question (नेपाली)</label><input name="QuestionNe" /></div>
+            <div><label>Options EN (separate with |)</label><input name="OptionsEn" /></div>
+            <div><label>Options NE (separate with |)</label><input name="OptionsNe" /></div>
+            <div><label>Correct option # (1-based, 0 = poll)</label><input name="Answer" type="number" min="0" /></div>
+            <div><label>Points</label><input name="Points" type="number" value="10" /></div>
+            <div><label>Who can play</label><select name="Groups">
+              <option>All</option><option>Bride</option><option>Groom</option><option>Family</option><option>Friend</option>
+              <option>Bride-Family</option><option>Groom-Family</option><option>Bride-Friend</option><option>Groom-Friend</option></select></div>
+            <div><label>Order</label><input name="Order" type="number" value="0" /></div>
+            <div><label><input type="checkbox" name="Active" checked /> Active</label></div>
+          </div>
+          <p><button class="btn">Save game</button></p>
+        </form>
+        <div class="card"><h3>Games</h3><div class="table-wrap"><table id="gameTable"></table></div></div>
+      </section>
+
+      <!-- Live -->
+      <section class="panel" id="panel-live">
+        <form class="card" id="liveForm">
+          <h3>What's happening now</h3>
+          <label>Message (English)</label><input name="messageEn" />
+          <label>Message (नेपाली)</label><input name="messageNe" />
+          <p><button class="btn">Post</button> <button type="button" class="btn ghost" id="clearLive">Clear banner</button></p>
+        </form>
+      </section>
+
+      <!-- Analytics & logistics -->
+      <section class="panel" id="panel-analytics">
+        <div class="grid" id="anStats"></div>
+        <div class="grid">
+          <div class="card"><h3>Activity by hour (last 24h)</h3><div class="hours" id="anHours"></div></div>
+          <div class="card"><h3>Top pages</h3><ul class="stat-list" id="anPages"></ul></div>
+          <div class="card"><h3>Top actions</h3><ul class="stat-list" id="anActions"></ul></div>
+          <div class="card"><h3>Ages (attending planning)</h3><ul class="stat-list" id="anAges"></ul></div>
+          <div class="card"><h3>Venue choice</h3><ul class="stat-list" id="anVenues"></ul></div>
+          <div class="card"><h3>Uploads by event</h3><ul class="stat-list" id="anEvents"></ul></div>
+          <div class="card"><h3>Top photographers</h3><ul class="stat-list" id="anUploaders"></ul></div>
+        </div>
+        <div class="card"><h3>Not registered yet (follow up)</h3><div class="table-wrap"><table id="anPending"></table></div></div>
+      </section>
+
+      <!-- Gifts -->
+      <section class="panel" id="panel-gifts">
+        <div class="card"><h3>Payment QR codes</h3><p class="muted">Upload QR images (eSewa, Khalti, Fonepay, bank, etc.) to the Drive folder <b>Wedding/Gift QR</b>. The file name is shown as the label. Guests see them on the Gift page within ~10 minutes.</p></div>
+        <div class="card"><div class="row-between"><h3>Gifts &amp; blessings</h3><button class="btn" type="button" id="addCash">➕ Cash envelope</button></div>
+          <p id="giftTotals" class="muted"></p>
+          <span class="seg" id="giftFilter"><button data-f="" class="on">All</button><button data-f="todo">To thank</button><button data-f="done">Thanked</button></span>
+          <div class="table-wrap"><table id="giftTable"></table></div>
+          <p><button class="btn ghost sm" type="button" id="exportGifts">⬇️ Export gifts CSV (thank-you list)</button></p></div>
+        <div class="card"><h3>🕶️ Secret notes</h3><p class="muted">Guests think these are anonymous. Only you see who sent them.</p><div class="table-wrap"><table id="whisperTable"></table></div></div>
+        <dialog id="cashDlg" class="sheet">
+          <form method="dialog" id="cashForm" class="stack">
+            <h3>🧧 Cash envelope</h3>
+            <input name="name" placeholder="Giver name" required autocomplete="off" list="cashNames" />
+            <datalist id="cashNames"></datalist>
+            <input name="relation" placeholder="Relation (Mama, friend…)" autocomplete="off" />
+            <div class="row"><input name="amount" type="number" inputmode="numeric" placeholder="Amount" style="flex:2" /><input name="currency" value="NPR" style="flex:1" /></div>
+            <input name="phone" type="tel" inputmode="tel" placeholder="Phone (for thank-you)" />
+            <textarea name="note" rows="2" placeholder="Notes"></textarea>
+            <div class="row"><button class="btn ghost" value="cancel" formnovalidate>Close</button><button class="btn" id="cashSave" value="save">Save &amp; next</button></div>
+            <small class="muted" id="cashMsg"></small>
+          </form>
+        </dialog>
+      </section>
+
+      <!-- Invites, screenshot proofs, logs -->
+      <section class="panel" id="panel-thanks">
+        <div class="card">
+          <div class="row-between"><h3>💌 Thank-you notes</h3><span class="seg" id="tqFilter"><button data-f="todo" class="on">To send</button><button data-f="done">Sent</button><button data-f="">All</button></span></div>
+          <p class="muted">Built from the gift ledger + functions each guest attended. Edit templates in Settings › Thank-you. Tap a channel to send; it's logged automatically.</p>
+          <p><label class="check"><input type="checkbox" id="tqNe" /> नेपाली message</label> <input id="tqSearch" type="search" placeholder="Search…" /></p>
+          <div id="tqList" class="tq-list"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-team">
+        <div class="card"><h3>🛡️ Admin team</h3>
+          <p class="muted">Each admin gets their own passcode. <b>Manager</b>: everything except settings/team. <b>Helper</b>: check-in, gift ledger, thank-yous only. Every action is logged with their name.</p>
+          <form id="teamForm" class="row"><input name="Name" placeholder="Name" required><input name="Email" type="email" placeholder="Google email" required>
+            <select name="Role"><option>helper</option><option>manager</option><option>owner</option></select><button class="btn sm">Add</button></form>
+          <p id="teamNew" class="msg ok" hidden></p>
+          <div class="table-wrap"><table id="teamTable"></table></div></div>
+      </section>
+
+      <section class="panel" id="panel-invites">
+        <div class="card"><h3>Invitation requests</h3><p class="muted">Approving creates the PDF in Drive (Wedding/Invites) and the guest can save it.</p>
+          <div class="table-wrap"><table id="inviteTable"></table></div></div>
+        <div class="card"><h3>Screenshot / photo proofs</h3><p class="muted">Approve to award the game points.</p>
+          <div class="table-wrap"><table id="proofTable"></table></div></div>
+        <div class="card"><h3>Activity logs (Drive)</h3><p class="muted">Every guest action is silently logged with time. Admin actions are logged separately.</p>
+          <p id="logLinks"></p></div>
+      </section>
+
+      <!-- Memorial -->
+      <section class="panel" id="panel-memorial">
+        <form class="card" id="momForm">
+          <h3>Mom's profile</h3>
+          <div class="grid">
+            <div><label>Name (English)</label><input name="nameEn" /></div>
+            <div><label>Name (नेपाली)</label><input name="nameNe" /></div>
+            <div><label>Years (e.g., 1965 – 2022)</label><input name="years" /></div>
+            <div><label>Photo URL</label><input name="photoUrl" /></div>
+          </div>
+          <label>Dedication (English)</label><textarea name="dedicationEn"></textarea>
+          <label>Dedication (नेपाली)</label><textarea name="dedicationNe"></textarea>
+          <label>Her quote (English)</label><input name="quoteEn" />
+          <label>Her quote (नेपाली)</label><input name="quoteNe" />
+          <p><button class="btn">Save profile</button></p>
+        </form>
+        <div class="card"><h3>Memories (moderation)</h3><div class="table-wrap"><table id="memTable"></table></div></div>
+      </section>
+
+      <!-- Settings -->
+      <section class="panel" id="panel-settings">
+        <div class="card"><div class="table-wrap" style="max-height:none"><table id="settingsTable"></table></div></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/i18n.js"></script>
+  <script src="../js/app.js"></script>
+  <script src="../js/admin.js"></script>
+</body>
+</html>

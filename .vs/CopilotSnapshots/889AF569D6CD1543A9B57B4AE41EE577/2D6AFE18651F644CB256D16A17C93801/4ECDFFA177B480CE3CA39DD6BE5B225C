@@ -1,0 +1,104 @@
+﻿(async function () {
+  const msg = document.getElementById('msg');
+  const form = document.getElementById('regForm');
+  const accForm = document.getElementById('accForm');
+  let cfg, data;
+
+  try { cfg = await App.boot(); } catch (e) { App.msg(msg, e.message, 'err'); return; }
+
+  const id = App.guestId();
+  if (!id) { App.msg(msg, I18N.t('common.invalidLink'), 'err'); return; }
+  if (!App.on(cfg, 'feature.registration') || !App.on(cfg, 'registration.open')) { App.msg(msg, I18N.t('reg.closed'), 'err'); return; }
+
+  try { data = await API.call('getGuest', { guestId: id }); }
+  catch (e) { App.msg(msg, I18N.t('common.invalidLink'), 'err'); return; }
+
+  const g = data.guest;
+  App.setSide(g.Side, cfg);
+  const max = g.AdmitCount || 1;
+  document.getElementById('maxCount').textContent = max;
+  form.AttendingCount.max = max;
+  accForm.People.max = max;
+  document.getElementById('nonDrinkerRow').hidden = !App.on(cfg, 'feature.drinkBand');
+
+  ['Name', 'NameNe', 'Phone', 'Email', 'Side', 'Relation', 'RelationNe', 'Meal', 'Allergies', 'Arrival', 'Departure'].forEach(k => {
+    if (g[k]) form[k].value = String(g[k]).slice(0, k === 'Arrival' || k === 'Departure' ? 10 : 200);
+  });
+  if (g.DOB) form.DOB.value = String(g.DOB).slice(0, 10);
+  if (g.Status && g.Status !== 'Pending') form.Status.value = g.Status;
+  if (g.AttendingCount !== '' && g.AttendingCount != null) form.AttendingCount.value = g.AttendingCount;
+  form.NonDrinker.checked = !!g.NonDrinker;
+  form.Side.addEventListener('change', () => App.setSide(form.Side.value, cfg));
+
+  const rsvpMap = {};
+  (data.rsvps || []).forEach(r => rsvpMap[r.EventId] = r);
+
+  function renderEvents() {
+    const box = document.getElementById('events');
+    if (!data.events.length) { box.innerHTML = '<p class="muted">—</p>'; return; }
+    box.innerHTML = data.events.map(ev => {
+      if (ev.locked) {
+        return '<div class="event-row locked"><span>🔒 ' + App.esc(I18N.t('reg.locked')) + '</span></div>';
+      }
+      const r = rsvpMap[ev.EventId] || {};
+      const resp = r.Response || '';
+      const when = ev.DateTime ? new Date(ev.DateTime).toLocaleString() : '';
+      const opts = ['Yes', 'Maybe', 'No'].map(o =>
+        '<label><input type="radio" name="ev_' + App.esc(ev.EventId) + '" value="' + o + '"' + (resp === o ? ' checked' : '') +
+        '><span>' + App.esc(I18N.t('rsvp.' + o)) + '</span></label>').join('');
+      return '<div class="event-row" data-event="' + App.esc(ev.EventId) + '">' +
+        '<div><b>' + App.esc(I18N.bi(ev.NameEn, ev.NameNe)) + '</b><div class="muted">' + App.esc(when) + ' · ' + App.esc(ev.Venue || '') + '</div></div>' +
+        '<div><span class="seg">' + opts + '</span> ' +
+        '<input type="number" class="ev-count" min="0" max="' + max + '" value="' + (r.Count !== undefined && r.Count !== '' ? r.Count : max) + '" style="width:70px"></div></div>';
+    }).join('');
+  }
+  renderEvents();
+  document.addEventListener('langchange', renderEvents);
+  form.hidden = false;
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    const f = Object.fromEntries(new FormData(form).entries());
+    f.NonDrinker = form.NonDrinker.checked;
+    if (f.Status === 'Not attending') f.AttendingCount = 0;
+    const events = [...document.querySelectorAll('#events [data-event]')].map(row => {
+      const sel = row.querySelector('input[type=radio]:checked');
+      return { EventId: row.dataset.event, Response: sel ? sel.value : '', Count: row.querySelector('.ev-count').value };
+    }).filter(x => x.Response);
+    try {
+      await API.call('register', { guestId: id, form: f, events: events });
+      App.msg(msg, I18N.t('reg.saved'), 'ok');
+      window.scrollTo(0, 0);
+      setTimeout(() => location.href = App.withGuest('pass.html'), 1500);
+    } catch (err) {
+      App.msg(msg, err.message, 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Accommodation: only shown when admin enabled it for this guest.
+  if (data.accommodation && data.accommodation.eligible) {
+    const req = data.accommodation.request;
+    if (req) {
+      accForm.Nights.value = req.Nights || 1;
+      accForm.People.value = req.People || 1;
+      accForm.Needs.value = req.Needs || '';
+      document.getElementById('accStatus').textContent = I18N.t('acc.status') + ': ' + req.Status;
+    }
+    accForm.hidden = false;
+    accForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(accForm).entries());
+      try {
+        const r = await API.call('requestAccommodation', Object.assign({ guestId: id }, f));
+        document.getElementById('accStatus').textContent = I18N.t('acc.status') + ': ' + r.Status;
+        App.msg(document.getElementById('accMsg'), I18N.t('acc.saved'), 'ok');
+      } catch (err) {
+        App.msg(document.getElementById('accMsg'), err.message, 'err');
+      }
+    });
+  }
+})();

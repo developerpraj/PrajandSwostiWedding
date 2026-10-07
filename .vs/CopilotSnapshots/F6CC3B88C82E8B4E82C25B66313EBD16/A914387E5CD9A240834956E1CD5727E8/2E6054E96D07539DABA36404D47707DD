@@ -1,0 +1,265 @@
+﻿<!DOCTYPE html>
+<html lang="ne">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#b3122e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="शुभविवाह" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <title>शुभविवाह · Wedding</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/mobile.css" />
+  <link rel="stylesheet" href="css/ops.css" />
+  <link rel="stylesheet" href="css/ux.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🪔 शुभविवाह</div>
+    <nav>
+      <a href="index.html" data-guest-link data-icon="🏠" data-i18n="nav.home" class="current">Home</a>
+      <a href="ceremony.html" data-guest-link data-icon="🪔" data-i18n="nav.ceremony" data-feature="feature.rituals">Ceremony</a>
+      <a href="photos.html" data-guest-link data-icon="📷" data-i18n="nav.photos" data-feature="feature.media">Photos</a>
+      <a href="games.html" data-guest-link data-icon="🎲" data-i18n="nav.games" data-feature="feature.games">Games</a>
+      <a href="gift.html" data-guest-link data-icon="🎁" data-i18n="nav.gift" data-feature="feature.gifts">Gift</a>
+      <a href="pass.html" data-guest-link data-icon="🎫" data-i18n="nav.pass">My Pass</a>
+      <a href="memorial.html" data-guest-link data-icon="🪔" data-i18n="nav.memorial" id="navMemorial">In Memory of Mom</a>
+    </nav>
+    <div class="lang-switch" id="langSwitch"></div>
+  </header>
+  <div id="live" class="live-banner" hidden></div>
+
+  <main>
+    <section class="card center">
+      <p class="muted mantra-top" id="mantraTop">॥ श्री गणेशाय नमः ॥</p>
+      <blockquote class="mantra" id="mantra" lang="sa" hidden><p id="mantraText"></p><small id="mantraMeaning" class="muted"></small></blockquote>
+      <h1 id="couple">…</h1>
+      <p id="inviteLine">Prajjwol and Swosti invite you to our wedding ceremony</p>
+      <div class="countdown" id="days">–</div>
+      <div data-i18n="home.daysToGo">days to go</div>
+      <p id="welcome" class="muted"></p>
+      <p>
+        <a class="btn" href="signin.html" id="signinCta" data-i18n="nav.signin" hidden>Sign in</a>
+        <a class="btn" href="register.html" data-guest-link data-i18n="home.registerCta">Register</a>
+        <a class="btn ghost" href="pass.html" data-guest-link data-i18n="home.passCta">Pass</a>
+      </p>
+      <div id="msg" class="msg" hidden></div>
+      <a class="btn big elder-only" id="helpCall" hidden></a>
+    </section>
+
+    <div id="whoSwitch" class="who-switch" hidden></div>
+
+    <section class="hub" id="hub" hidden>
+      <a class="card hub-tile" id="nextCard" href="pass.html" data-guest-link hidden>
+        <small data-i18n="home.next">Next up</small><b id="nextName"></b><span class="muted" id="nextWhen"></span>
+      </a>
+      <a class="card hub-tile" id="promptCard" href="photos.html" data-guest-link data-feature="feature.media" hidden>
+        <small data-i18n="home.prompt">Today's challenge</small><b id="promptText"></b><span class="btn" data-i18n="home.share">Share</span>
+      </a>
+      <a class="card hub-tile" href="games.html" data-guest-link data-feature="feature.games">
+        <small data-i18n="home.myPoints">Your points</small><b class="big-num" id="myPoints">0</b>
+        <div class="team-bar" id="teamBar"></div><span class="btn alt" data-i18n="home.play">Play</span>
+      </a>
+      <p class="muted center" id="surprises" hidden></p>
+    </section>
+
+    <section class="card" id="venueCard" data-feature="feature.venues" hidden>
+      <h2 data-i18n="venue.title">Venue &amp; directions</h2>
+      <div id="venueList" class="venues"></div>
+    </section>
+
+    <section class="card" id="inviteCard" data-feature="feature.invites" hidden>
+      <h2 data-i18n="invite.title">Your invitation</h2>
+      <div id="inviteBox"></div>
+    </section>
+
+    <section class="card" id="latestCard" data-feature="feature.media" hidden>
+      <div class="row-between"><h2 data-i18n="home.latest">Latest moments</h2><a href="photos.html" data-guest-link data-i18n="home.seeAll">See all</a></div>
+      <div class="gallery" id="latest"></div>
+    </section>
+
+    <a href="memorial.html" data-guest-link id="memorialCard" class="card center" style="display:block;text-decoration:none" hidden>
+      <div style="font-size:2rem">🪔</div>
+      <p data-i18n="home.memorialCard">In loving memory of our Mom</p>
+    </a>
+  </main>
+
+  <footer>🙏</footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async function () {
+      let cfg;
+      try { cfg = await App.boot(); } catch (e) { App.msg(document.getElementById('msg'), e.message, 'err'); return; }
+
+      function render() {
+        document.getElementById('couple').textContent =
+          I18N.bi(cfg['couple.groomEn'] + ' & ' + cfg['couple.brideEn'], cfg['couple.groomNe'] + ' र ' + cfg['couple.brideNe']);
+        document.getElementById('inviteLine').textContent = I18N.bi(
+          cfg['couple.groomEn'] + ' and ' + cfg['couple.brideEn'] + ' invite you to our wedding ceremony',
+          cfg['couple.groomNe'] + ' र ' + cfg['couple.brideNe'] + ' हाम्रो विवाह समारोहमा तपाईंलाई निमन्त्रणा गर्दछौं');
+        const d = new Date(cfg['wedding.date']);
+        if (cfg['invite.mantraTop']) document.getElementById('mantraTop').textContent = cfg['invite.mantraTop'];
+        const mOn = App.on(cfg, 'feature.mantra') && cfg['invite.mantra'];
+        document.getElementById('mantra').hidden = !mOn;
+        if (mOn) {
+          document.getElementById('mantraText').textContent = cfg['invite.mantra'];
+          document.getElementById('mantraMeaning').textContent = I18N.mode() === 'ne' ? '' : (cfg['invite.mantraMeaning'] || '');
+        }
+        document.getElementById('days').textContent = isNaN(d) ? '–' : Math.max(0, Math.ceil((d - new Date()) / 86400000));
+      }
+      render();
+      document.addEventListener('langchange', render);
+      const helpCall = document.getElementById('helpCall');
+      const paintHelp = () => {
+        const ph = String(cfg['app.helpPhone'] || '').replace(/[^\d+]/g, '');
+        helpCall.hidden = !ph;
+        if (ph) { helpCall.href = 'tel:' + ph; helpCall.textContent = '📞 ' + I18N.t('elder.help'); }
+      };
+      paintHelp();
+      document.addEventListener('langchange', paintHelp);
+
+      const memOn = App.on(cfg, 'feature.memorial');
+      document.getElementById('memorialCard').hidden = !memOn;
+      document.getElementById('navMemorial').hidden = !memOn;
+      document.querySelectorAll('a[href^="register.html"]').forEach(a => a.hidden = !App.on(cfg, 'feature.registration'));
+
+      const id = App.guestId();
+      let guest = null;
+      if (!id) {
+        document.getElementById('signinCta').hidden = !(App.on(cfg, 'auth.phone') || App.on(cfg, 'auth.google'));
+        document.querySelectorAll('section a[href^="register.html"], section a[href^="pass.html"]').forEach(a => a.hidden = true);
+      }
+
+      const renderVenues = () => {
+        const vs = cfg.venues || [];
+        const mine = guest && guest.VenueId;
+        const list = mine ? vs.filter(v => v.VenueId === mine).concat(vs.filter(v => v.VenueId !== mine)) : vs;
+        document.getElementById('venueCard').hidden = !vs.length || !App.on(cfg, 'feature.venues');
+        document.getElementById('venueList').innerHTML = list.map(v => App.venueCard(Object.assign({}, v, { Selectable: !!id && v.Selectable }), v.VenueId === mine)).join('');
+      };
+      renderVenues();
+
+      // ---------- Invitation PDF (guest requests, admin approves) ----------
+      let invite = null;
+      const inviteBox = document.getElementById('inviteBox');
+      const renderInvite = () => {
+        if (!id || !App.on(cfg, 'feature.invites')) return;
+        document.getElementById('inviteCard').hidden = false;
+        const t = k => App.esc(I18N.t(k));
+        if (!invite || invite.status === 'Rejected') {
+          inviteBox.innerHTML = (invite ? '<p class="muted">' + t('invite.rejected') + '</p>' : '') + '<button class="btn block" id="makeInvite">💌 ' + t('invite.make') + '</button>';
+        } else if (invite.status !== 'Approved') {
+          inviteBox.innerHTML = '<p class="muted">🕓 ' + t('invite.waiting') + '</p>';
+        } else {
+          inviteBox.innerHTML = '<div class="btn-row"><a class="btn" href="' + App.esc(invite.url) + '" download>⬇️ ' + t('invite.save') + '</a>' +
+            '<a class="btn ghost" target="_blank" rel="noopener" href="' + App.esc(invite.view) + '">' + t('invite.view') + '</a>' +
+            (navigator.share ? '<button class="btn ghost" id="shareInvite">' + t('invite.share') + '</button>' : '') + '</div>';
+        }
+      };
+      if (id && App.on(cfg, 'feature.invites')) {
+        API.call('getInvite', { guestId: id }, { onFresh: v => { invite = v; renderInvite(); } }).then(v => { invite = v; renderInvite(); }).catch(() => { });
+        document.addEventListener('langchange', renderInvite);
+        inviteBox.addEventListener('click', async e => {
+          if (e.target.closest('#makeInvite')) {
+            e.target.disabled = true;
+            try { invite = await API.call('requestInvite', Object.assign(App.who(), { lang: I18N.mode() })); renderInvite(); }
+            catch (err) { App.msg(document.getElementById('msg'), err.message, 'err'); e.target.disabled = false; }
+          }
+          if (e.target.closest('#shareInvite')) { try { await navigator.share({ title: document.title, url: invite.view }); } catch (x) { } }
+        });
+      }
+      document.getElementById('venueList').addEventListener('click', async e => {
+        const b = e.target.closest('[data-choose]');
+        if (!b || !id) return;
+        const venueId = b.closest('[data-venue]').dataset.venue;
+        try { await API.call('chooseVenue', { guestId: id, venueId: venueId }); if (guest) guest.VenueId = venueId; renderVenues(); }
+        catch (err) { App.msg(document.getElementById('msg'), err.message, 'err'); }
+      });
+      document.addEventListener('langchange', renderVenues);
+      const setWelcome = () => {
+        const me = App.currentMember();
+        const n = (me && me.Name) || (guest && (guest.Name || guest.Family)) || localStorage.getItem('visitorName') || '';
+        const nNe = (me && me.NameNe) || (guest && guest.NameNe) || n;
+        const back = !!localStorage.getItem('seenBefore');
+        const fill = s => String(s || '').split('{name}');
+        const line = I18N.bi(fill(cfg['invite.messageEn'] || 'Dear {name}, Prajjwol and Swosti invite you to our wedding ceremony.').join(n || 'friend'),
+          fill(cfg['invite.messageNe'] || cfg['invite.messageEn']).join(nNe || n));
+        document.getElementById('welcome').textContent = n
+          ? (back ? I18N.t('remember.back') + ' · ' : '') + line + ' 🙏'
+          : '';
+      };
+      if (id) {
+        App.refreshHousehold().then(g => {
+          if (g) {
+            guest = g.guest;
+            document.querySelectorAll('a[href^="register.html"]').forEach(a => {
+              if (guest.Registered && a.classList.contains('btn')) a.classList.add('ghost');
+            });
+            renderVenues();
+          }
+          App.profileSwitcher(document.getElementById('whoSwitch'));
+          setWelcome();
+        });
+      }
+      setWelcome();
+      localStorage.setItem('seenBefore', '1');
+      document.addEventListener('langchange', setWelcome);
+      document.addEventListener('memberchange', () => { setWelcome(); loadHome(); });
+
+      // Engagement hub: next event, daily challenge, points, team battle, latest photos.
+      let home = null;
+      function renderHome() {
+        if (!home) return;
+        document.getElementById('hub').hidden = false;
+        const nc = document.getElementById('nextCard');
+        nc.hidden = !home.nextEvent;
+        if (home.nextEvent) {
+          document.getElementById('nextName').textContent = I18N.bi(home.nextEvent.NameEn, home.nextEvent.NameNe);
+          document.getElementById('nextWhen').textContent = new Date(home.nextEvent.DateTime).toLocaleString() + ' · ' + (home.nextEvent.Venue || '');
+        }
+        const pc = document.getElementById('promptCard');
+        if (home.prompt && App.on(cfg, 'feature.media')) { pc.hidden = false; document.getElementById('promptText').textContent = I18N.bi(home.prompt.en, home.prompt.ne || home.prompt.en); }
+        document.getElementById('myPoints').textContent = home.myPoints || 0;
+        const t = home.teams || { Bride: 0, Groom: 0 }, tot = (t.Bride + t.Groom) || 1;
+        const tb = document.getElementById('teamBar');
+        tb.innerHTML = '<span class="bride" style="width:' + (t.Bride * 100 / tot) + '%"></span><span class="groom" style="width:' + (t.Groom * 100 / tot) + '%"></span>';
+        tb.setAttribute('role', 'img');
+        tb.setAttribute('aria-label', I18N.bi('Bride side ' + t.Bride + ' · Groom side ' + t.Groom, 'दुलहीपक्ष ' + t.Bride + ' · दुलाहापक्ष ' + t.Groom));
+        tb.dataset.bride = t.Bride; tb.dataset.groom = t.Groom;
+        const sp = document.getElementById('surprises');
+        sp.hidden = !home.lockedCount;
+        sp.textContent = '🎁 ' + home.lockedCount + ' ' + I18N.t('home.surprises');
+        const lc = document.getElementById('latestCard');
+        lc.hidden = !App.on(cfg, 'feature.media') || !home.media.length;
+        document.getElementById('latest').innerHTML = home.media.map(m =>
+          '<a class="tile" href="' + App.esc(App.withGuest('photos.html')) + '"><img loading="lazy" src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(m.fileId) + '&sz=w400" alt="">' +
+          (m.type === 'video' ? '<span class="play">▶</span>' : '') + '<span class="by">' + App.esc(m.name || '') + '</span></a>').join('');
+      }
+      async function loadHome() {
+        try { home = await API.call('getHome', App.who(), { onFresh: v => { home = v; renderHome(); } }); renderHome(); } catch (e) { }
+      }
+      document.addEventListener('langchange', renderHome);
+      loadHome();
+      setInterval(() => { if (!document.hidden) loadHome(); }, 60000);
+
+      if (App.on(cfg, 'feature.live')) {
+        const box = document.getElementById('live');
+        const show = l => { box.hidden = !l; if (l) box.textContent = '🔴 ' + I18N.t('home.liveNow') + ': ' + I18N.bi(l.en, l.ne); };
+        show(cfg.live);
+        App.liveFeed(d => {
+          show(d.live);
+          if (d.teams && home) { home.teams = d.teams; renderHome(); }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

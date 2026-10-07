@@ -1,0 +1,44 @@
+# .gitignore — everything is currently pushed.
+# Each rule below is commented out. Remove the leading "# " on a rule to stop pushing those files.
+# If a file was already pushed, ignoring it later won't remove it from GitHub; run: git rm -r --cached <path>
+
+# ---------- Secrets (never push these once they exist) ----------
+# .env
+# *.env
+# .clasp.json
+# .clasprc.json
+# credentials*.json
+# service-account*.json
+# *passcode*.txt
+
+# ---------- Personal guest data / Drive exports ----------
+# drive-backup/
+# demo-data/*.real.json
+# *.xlsx
+# *.csv
+
+# ---------- Visual Studio / editor ----------
+# .vs/
+# *.user
+# *.suo
+# .vscode/
+
+# ---------- Node / test output ----------
+# node_modules/
+# tests/node_modules/
+# test-results/
+# playwright-report/
+# tests/test-results/
+# tests/playwright-report/
+# coverage/
+# *.log
+
+# ---------- OS junk ----------
+# Thumbs.db
+# Desktop.ini
+# .DS_Store
+
+# ---------- Generated invitation PDFs / large media ----------
+# *.pdf
+# *.mp4
+# *.mov

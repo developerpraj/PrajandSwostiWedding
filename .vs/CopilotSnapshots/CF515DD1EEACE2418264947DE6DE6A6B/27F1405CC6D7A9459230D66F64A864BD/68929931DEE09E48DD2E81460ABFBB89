@@ -1,0 +1,209 @@
+﻿// In-memory fakes for the Google Apps Script services used by apps-script/*.gs, so the real backend
+// code can run under node:test. Each call to load() returns a fresh, isolated backend.
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const GS_DIR = path.join(__dirname, '..', '..', 'apps-script');
+
+function makeRange(sheet, r, c, nr, nc) {
+  return {
+    getValues: () => { const out = []; for (let i = 0; i < nr; i++) { const row = []; for (let j = 0; j < nc; j++) row.push(((sheet.rows[r - 1 + i] || [])[c - 1 + j]) ?? ''); out.push(row); } return out; },
+    setValues: v => { v.forEach((row, i) => { const R = sheet.rows[r - 1 + i] = sheet.rows[r - 1 + i] || []; row.forEach((x, j) => R[c - 1 + j] = x); }); sheet.writes++; },
+    setValue: x => { const R = sheet.rows[r - 1] = sheet.rows[r - 1] || []; R[c - 1] = x; sheet.writes++; },
+    setFontWeight: () => {}
+  };
+}
+
+function makeSheet(name) {
+  const sheet = {
+    name, rows: [], writes: 0,
+    getName: () => name,
+    appendRow: row => { sheet.rows.push(row.slice()); sheet.writes++; },
+    getLastRow: () => sheet.rows.length,
+    getLastColumn: () => sheet.rows.reduce((m, r) => Math.max(m, r.length), 0),
+    getRange: (r, c, nr, nc) => makeRange(sheet, r, c, nr || 1, nc || 1),
+    getDataRange: () => makeRange(sheet, 1, 1, Math.max(1, sheet.rows.length), Math.max(1, sheet.getLastColumn())),
+    deleteRow: i => { sheet.rows.splice(i - 1, 1); sheet.writes++; },
+    setFrozenRows: () => {}
+  };
+  return sheet;
+}
+
+function makeSpreadsheet(id, initial) {
+  const sheets = (initial || ['Sheet1']).map(makeSheet);
+  return {
+    sheets,
+    getId: () => id,
+    getUrl: () => 'https://docs.google.com/spreadsheets/d/' + id,
+    getSheetByName: n => sheets.filter(s => s.name === n)[0] || null,
+    getSheets: () => sheets.slice(),
+    insertSheet: n => { const s = makeSheet(n); sheets.push(s); return s; },
+    deleteSheet: s => { sheets.splice(sheets.indexOf(s), 1); }
+  };
+}
+
+function iter(list) { let i = 0; return { hasNext: () => i < list.length, next: () => list[i++] }; }
+
+function makeDrive() {
+  let n = 0;
+  const items = {};
+  function folder(name, parent) {
+    const f = { id: 'F' + (++n), name, parent, kind: 'folder', trashed: false };
+    Object.assign(f, {
+      getId: () => f.id, getName: () => f.name, setName: x => { f.name = x; return f; },
+      getFoldersByName: x => iter(Object.values(items).filter(i => i.kind === 'folder' && i.parent === f.id && i.name === x)),
+      getFilesByName: x => iter(Object.values(items).filter(i => i.kind === 'file' && i.parent === f.id && i.name === x)),
+      getFiles: () => iter(Object.values(items).filter(i => i.kind === 'file' && i.parent === f.id && !i.trashed)),
+      createFolder: x => folder(x, f.id),
+      createFile: blob => file(blob && blob.name || 'file', f.id),
+      getParents: () => iter(parent && items[parent] ? [items[parent]] : []),
+      getUrl: () => 'https://drive.google.com/drive/folders/' + f.id
+    });
+    items[f.id] = f;
+    return f;
+  }
+  function file(name, parent) {
+    const f = { id: 'D' + (++n), name, parent, kind: 'file', trashed: false, created: new Date(Date.now() + n), sharing: null };
+    Object.assign(f, {
+      getId: () => f.id, getName: () => f.name, setName: x => { f.name = x; return f; }, getMimeType: () => 'image/jpeg',
+      getParents: () => iter(items[f.parent] ? [items[f.parent]] : []), moveTo: dest => { f.parent = dest.id; return f; },
+      makeCopy: (x, dest) => file(x, dest.id), setTrashed: t => { f.trashed = t; }, getDateCreated: () => f.created,
+      setSharing: (a, p) => { f.sharing = [a, p]; return f; }, setDescription: () => f, getUrl: () => 'https://drive.google.com/file/d/' + f.id,
+      getAs: () => ({ name: f.name }), getBlob: () => ({ name: f.name })
+    });
+    items[f.id] = f;
+    return f;
+  }
+  return {
+    items, folder, file,
+    api: {
+      Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK' }, Permission: { VIEW: 'VIEW' },
+      createFolder: x => folder(x, null),
+      getFolderById: id => { if (!items[id] || items[id].kind !== 'folder') throw new Error('No folder ' + id); return items[id]; },
+      getFileById: id => { if (!items[id]) throw new Error('No file ' + id); return items[id]; }
+    }
+  };
+}
+
+function makeCache() {
+  const store = {};
+  return {
+    store,
+    get: k => (k in store ? store[k] : null),
+    put: (k, v, ttl) => { if (String(v).length > 100000) throw new Error('Argument too large'); store[k] = String(v); store['__ttl_' + k] = ttl; },
+    remove: k => { delete store[k]; },
+    removeAll: ks => ks.forEach(k => delete store[k])
+  };
+}
+
+/**
+ * Loads every apps-script/*.gs into a fresh VM context with fake Google services.
+ * opts.fetch(url, params) -> { code, body, headers } lets tests script UrlFetchApp responses.
+ */
+function load(opts) {
+  opts = opts || {};
+  const props = Object.assign({}, opts.props || {});
+  const cache = makeCache();
+  const drive = makeDrive();
+  const active = makeSpreadsheet('SS_MAIN');
+  const books = { SS_MAIN: active };
+  let bookN = 0;
+  const triggers = [];
+  const mail = [];
+  const fetches = [];
+  const lock = { waits: 0, releases: 0, held: false };
+  const ctx = {
+    console, JSON, Math, Date, Object, Array, String, Number, Boolean, RegExp, Error, isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent,
+    SpreadsheetApp: {
+      getActive: () => active,
+      openById: id => { if (!books[id]) throw new Error('No book'); return books[id]; },
+      create: name => { const id = 'SS' + (++bookN); const b = makeSpreadsheet(id); b.name = name; books[id] = b; drive.file(name, null).id; drive.items[id] = Object.assign(drive.file(name, null), { id }); return b; }
+    },
+    DriveApp: drive.api,
+    CacheService: { getScriptCache: () => cache },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); }, deleteProperty: k => { delete props[k]; } }) },
+    LockService: { getScriptLock: () => ({ waitLock: () => { lock.waits++; lock.held = true; }, releaseLock: () => { lock.releases++; lock.held = false; } }) },
+    MailApp: { getRemainingDailyQuota: () => (opts.mailQuota === undefined ? 100 : opts.mailQuota), sendEmail: function () { mail.push([].slice.call(arguments)); } },
+    GmailApp: { sendEmail: function () { mail.push([].slice.call(arguments)); } },
+    Session: { getEffectiveUser: () => ({ getEmail: () => 'owner@example.com' }), getActiveUser: () => ({ getEmail: () => 'owner@example.com' }), getScriptTimeZone: () => 'UTC' },
+    ScriptApp: {
+      getOAuthToken: () => 'oauth-token',
+      getProjectTriggers: () => triggers.slice(),
+      newTrigger: fn => { const b = { timeBased: () => b, everyMinutes: () => b, everyHours: () => b, everyDays: () => b, atHour: () => b, create: () => { triggers.push({ getHandlerFunction: () => fn }); } }; return b; }
+    },
+    UrlFetchApp: {
+      fetch: (url, params) => {
+        fetches.push({ url, params: params || {} });
+        const r = (opts.fetch ? opts.fetch(url, params || {}) : null) || { code: 200, body: '{}' };
+        if (r.throw) throw new Error(r.throw);
+        return { getResponseCode: () => r.code, getContentText: () => r.body || '', getAllHeaders: () => r.headers || {} };
+      }
+    },
+    Utilities: {
+      Charset: { UTF_8: 'UTF-8' },
+      base64Encode: s => Buffer.from(String(s), 'utf8').toString('base64'),
+      base64Decode: s => Array.from(Buffer.from(String(s), 'base64')),
+      newBlob: (data, mime, name) => ({ data, mime, name, getBytes: () => data, setName: function (n) { this.name = n; return this; } }),
+      formatDate: (d, tz, fmt) => {
+        const p = x => String(x).padStart(2, '0');
+        return fmt.replace('yyyy', d.getUTCFullYear()).replace('MM', p(d.getUTCMonth() + 1)).replace('dd', p(d.getUTCDate()))
+          .replace('HH', p(d.getUTCHours())).replace('mm', p(d.getUTCMinutes())).replace('ss', p(d.getUTCSeconds()));
+      },
+      getUuid: () => 'uuid-' + Math.random().toString(36).slice(2),
+      sleep: () => {}
+    },
+    ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ text: s, setMimeType() { return this; } }) }
+  };
+  vm.createContext(ctx);
+  const files = ['Pure.gs'].concat(fs.readdirSync(GS_DIR).filter(f => f.endsWith('.gs') && f !== 'Pure.gs').sort());
+  files.forEach(f => new vm.Script(fs.readFileSync(path.join(GS_DIR, f), 'utf8'), { filename: path.join(GS_DIR, f) }).runInContext(ctx));
+  // Expose top-level const/let bindings (shared lexical scope) to tests.
+  const expose = new vm.Script('({ SHEETS, DEFAULT_SETTINGS, PUBLIC_ACTIONS, ADMIN_ACTIONS, PUBLIC_WRITE_ACTIONS, MEMO_, SHEET_MEMO_ })');
+  const consts = expose.runInContext(ctx);
+
+  const api = {
+    ctx, props, cache, drive, active, books, triggers, mail, fetches, lock, consts,
+    /** Clears the per-request memo, like a fresh Apps Script execution. */
+    fresh: () => { Object.keys(consts.MEMO_).forEach(k => delete consts.MEMO_[k]); Object.keys(consts.SHEET_MEMO_).forEach(k => delete consts.SHEET_MEMO_[k]); },
+    post: (action, data, extra) => {
+      api.fresh();
+      const out = ctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ action, data: data || {} }, extra || {})) } });
+      return JSON.parse(out.text);
+    },
+    admin: (action, data, key) => api.post(action, data, { adminKey: key === undefined ? 'owner-pass' : key }),
+    rows: name => { api.fresh(); return ctx.table_(name); },
+    add: (name, obj) => { api.fresh(); ctx.appendObj_(name, obj); api.fresh(); },
+    setSetting: (k, v) => { api.fresh(); ctx.upsert_('Settings', 'Key', k, { Key: k, Value: v }); cache.remove('settings'); cache.remove('config'); api.fresh(); }
+  };
+  return api;
+}
+
+/** A backend after setup() with an owner passcode and a small, realistic data set. */
+function seeded(opts) {
+  const b = load(Object.assign({}, opts, { props: Object.assign({ ADMIN_PASSCODE: 'owner-pass' }, (opts && opts.props) || {}) }));
+  b.ctx.setup();
+  b.setSetting('wedding.endDate', '2099-12-31T23:59');
+  const soon = new Date(Date.now() + 3600 * 1000).toISOString();
+  const past = new Date(Date.now() - 3600 * 1000).toISOString();
+  [
+    { EventId: 'MEH', NameEn: 'Mehendi', NameNe: 'मेहन्दी', DateTime: past, Venue: 'Home', Groups: 'All', Order: 1, Visible: 'TRUE' },
+    { EventId: 'WED', NameEn: 'Wedding', NameNe: 'विवाह', DateTime: soon, Venue: 'Hall', Groups: 'All', Order: 2, Visible: 'TRUE' },
+    { EventId: 'VIP', NameEn: 'Family dinner', NameNe: 'परिवार भोज', DateTime: soon, Venue: 'Home', Groups: 'bride-family', Order: 3, Visible: 'TRUE' },
+    { EventId: 'HID', NameEn: 'Surprise', NameNe: 'सरप्राइज', DateTime: soon, Venue: 'Secret', Groups: 'All', Order: 4, Visible: 'TRUE', RevealStyle: 'locked', UnlockAt: new Date(Date.now() + 600000).toISOString() }
+  ].forEach(e => b.add('Events', e));
+  [
+    { GuestId: 'G001', Name: 'Sharma Family', NameNe: 'शर्मा परिवार', Family: 'Sharma', Side: 'Bride', Relation: 'Uncle', Groups: 'All', Phone: '+977 9800000001', Email: 'sharma@example.com', AdmitCount: 4, InviteCode: 'SHARMA1', AccommodationEligible: 'TRUE' },
+    { GuestId: 'G002', Name: 'Thapa Family', Family: 'Thapa', Side: 'Groom', Relation: 'Friend', Groups: 'All', Phone: '9800000002', AdmitCount: 2, InviteCode: 'THAPA22' },
+    { GuestId: 'G003', Name: 'Revoked Family', Side: 'Bride', Groups: 'All', Phone: '9800000003', AdmitCount: 1, InviteCode: 'REVOKE3', LinkRevoked: 'TRUE' },
+    { GuestId: 'G004', Name: 'Expired Family', Side: 'Groom', Groups: 'All', Phone: '9800000004', AdmitCount: 1, InviteCode: 'EXPIRE4', LinkExpires: '2000-01-01' }
+  ].forEach(g => b.add('Guests', g));
+  [
+    { MemberId: 'M1', GuestId: 'G001', Name: 'Ram Sharma', RelationTo: "Bride's family", RelationType: 'Family', Relation: 'Uncle', DOB: '1970-01-01', Attending: 'TRUE', IsPrimary: 'TRUE' },
+    { MemberId: 'M2', GuestId: 'G001', Name: 'Sita Sharma', RelationTo: "Bride's family", RelationType: 'Family', Relation: 'Aunt', DOB: '2012-05-05', Attending: 'TRUE', IsPrimary: 'FALSE' },
+    { MemberId: 'M3', GuestId: 'G002', Name: 'Hari Thapa', RelationTo: 'Groom', RelationType: 'Friend', Relation: 'Friend', DOB: '1995-03-03', Attending: 'TRUE', IsPrimary: 'TRUE', CheckedIn: 'TRUE', CheckedInAt: past }
+  ].forEach(m => b.add('Members', m));
+  return b;
+}
+
+module.exports = { load, seeded };

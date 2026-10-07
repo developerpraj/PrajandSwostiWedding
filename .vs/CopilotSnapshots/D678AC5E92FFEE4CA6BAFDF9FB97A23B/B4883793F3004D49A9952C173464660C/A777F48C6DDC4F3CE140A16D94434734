@@ -1,0 +1,13 @@
+﻿# demo-data (local preview only)
+
+Fake wedding data so you can click through every screen before the Google Apps Script backend is deployed.
+
+- `demo-api.js` – an in-browser stand-in for `apps-script/Code.gs`. It holds the dummy guests, events, RSVPs, gifts,
+  media, rituals, games, memorial, admins, thank-yous, rooms, venues, and other records, and answers every `API.call`.
+- On by default via `DEMO_MODE: true` in `js/config.js`. A green "Demo data" pill shows on every page.
+- Admin passcode in demo mode: **demo**
+- The demo guest is signed in as *Hari Sharma* (invite code `DEMO01`). Other codes: `DEMO02` … `DEMO06`.
+- Edits are saved in this browser only (`localStorage.demoDB`). Click **Reset** on the pill to start fresh.
+- Uploads are disabled in demo mode (they need Google Drive).
+
+**Before going live:** set `DEMO_MODE: false` and paste your Apps Script `/exec` URL into `js/config.js`.

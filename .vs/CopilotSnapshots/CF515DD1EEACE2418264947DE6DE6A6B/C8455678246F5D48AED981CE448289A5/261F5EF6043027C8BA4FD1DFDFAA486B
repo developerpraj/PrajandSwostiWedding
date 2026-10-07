@@ -1,0 +1,6 @@
+﻿Key,Value,Type,Group,Description
+points.checkIn,5,number,Games,Points for the team when a guest is checked in (QR)
+points.onTime,5,number,Games,Extra points when checked in before the event start time
+feature.elderMode,TRUE,toggle,Features,Elder Mode: A+ button for big text and only the essentials
+app.helpPhone,,text,General,Help phone number shown as a big call button in Elder Mode
+media.largeAlbumUrl,,text,Media,Shared album link shown when a file is bigger than the max size

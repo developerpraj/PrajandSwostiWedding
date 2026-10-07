@@ -1,0 +1,85 @@
+﻿<!DOCTYPE html>
+<html lang="ne">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#b3122e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="शुभविवाह" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <title>फोटो · Photos</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/mobile.css" />
+  <link rel="stylesheet" href="css/ops.css" />
+  <link rel="stylesheet" href="css/ux.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🪔 शुभविवाह</div>
+    <nav>
+      <a href="index.html" data-guest-link data-icon="🏠" data-i18n="nav.home">Home</a>
+      <a href="photos.html" data-guest-link data-icon="📷" data-i18n="nav.photos" data-feature="feature.media" class="current">Photos</a>
+      <a href="games.html" data-guest-link data-icon="🎲" data-i18n="nav.games" data-feature="feature.games">Games</a>
+      <a href="gift.html" data-guest-link data-icon="🎁" data-i18n="nav.gift" data-feature="feature.gifts">Gift</a>
+      <a href="pass.html" data-guest-link data-icon="🎫" data-i18n="nav.pass">My Pass</a>
+      <a href="memorial.html" data-guest-link data-icon="🪔" data-i18n="nav.memorial" id="navMemorial">In Memory of Mom</a>
+    </nav>
+    <div class="lang-switch" id="langSwitch"></div>
+  </header>
+
+  <main>
+    <div id="whoSwitch" class="who-switch" hidden></div>
+    <div id="msg" class="msg" hidden></div>
+
+    <section class="card center" id="uploader" hidden>
+      <h2 data-i18n="photo.title">Share Photos &amp; Videos</h2>
+      <p class="muted" data-i18n="photo.intro"></p>
+      <div id="visitorRow" hidden>
+        <label data-i18n="photo.yourName"></label><input id="visitorName" maxlength="80" />
+        <label data-i18n="rel.to"></label><select id="visitorRel"></select>
+      </div>
+      <div id="eventRow" hidden>
+        <label data-i18n="photo.event"></label><select id="eventSel"></select>
+      </div>
+      <div id="catRow" hidden>
+        <label data-i18n="photo.category">What is it?</label><select id="catSel"></select>
+      </div>
+      <label class="check anon-toggle"><input type="checkbox" id="anonPick" /> <span data-i18n="photo.anon">Share without my name</span></label>
+      <label class="check"><input type="checkbox" id="compressPick" checked /> <span data-i18n="photo.saveData">Save mobile data (smaller photos)</span></label>
+      <p class="upload-buttons">
+        <label class="btn big"><span data-i18n="photo.pick">Add photos</span>
+          <input type="file" id="filePick" accept="image/*,video/*,.heic,.heif,.avif,.webp,.dng,.mov,.m4v,.3gp,.mkv" multiple hidden />
+        </label>
+        <label class="btn alt big"><span data-i18n="photo.camera">Take a photo</span>
+          <input type="file" id="fileCam" accept="image/*,video/*,.heic,.heif" capture="environment" hidden />
+        </label>
+      </p>
+      <p id="keepOpen" class="msg warn" hidden data-i18n="photo.keepOpen">Keep this page open — if you switch apps the upload pauses and resumes by itself.</p>
+      <div id="queue" class="upload-queue"></div>
+    </section>
+
+    <section class="card">
+      <div class="row-between">
+        <h2 data-i18n="photo.gallery">Everyone's photos</h2>
+        <span class="seg" id="filter">
+          <label><input type="radio" name="f" value="all" checked><span data-i18n="photo.all">All</span></label>
+          <label><input type="radio" name="f" value="mine"><span data-i18n="photo.mine">Mine</span></label>
+        </span>
+      </div>
+      <div id="gallery" class="gallery"></div>
+    </section>
+
+    <div id="viewer" class="viewer" hidden></div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/photos.js"></script>
+</body>
+</html>

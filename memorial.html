@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ne">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#b3122e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="शुभविवाह" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <title>आमाको सम्झनामा · In Memory of Mom</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/mobile.css" />
+  <link rel="stylesheet" href="css/ops.css" />
+  <link rel="stylesheet" href="css/memorial.css" />
+  <link rel="stylesheet" href="css/ux.css" />
+</head>
+<body class="memorial">
+  <header class="topbar">
+    <div class="brand">🪔 शुभविवाह</div>
+    <nav>
+      <a href="index.html" data-guest-link data-icon="🏠" data-i18n="nav.home">Home</a>
+      <a href="register.html" data-guest-link data-icon="📝" data-i18n="nav.register">Register</a>
+      <a href="photos.html" data-guest-link data-icon="📷" data-i18n="nav.photos" data-feature="feature.media">Photos</a>
+      <a href="games.html" data-guest-link data-icon="🎲" data-i18n="nav.games" data-feature="feature.games">Games</a>
+      <a href="gift.html" data-guest-link data-icon="🎁" data-i18n="nav.gift" data-feature="feature.gifts">Gift</a>
+      <a href="pass.html" data-guest-link data-icon="🎫" data-i18n="nav.pass">My Pass</a>
+      <a href="memorial.html" data-guest-link data-icon="🪔" data-i18n="nav.memorial" id="navMemorial" class="current">In Memory of Mom</a>
+    </nav>
+    <div class="lang-switch" id="langSwitch"></div>
+  </header>
+
+  <main>
+    <div id="msg" class="msg" hidden></div>
+
+    <section class="card center tribute" id="tribute" hidden>
+      <div class="frame"><img id="momPhoto" alt="" hidden /></div>
+      <h1 data-i18n="mem.title">In Loving Memory of Our Mom</h1>
+      <h2 id="momName"></h2>
+      <p class="muted" id="momYears"></p>
+      <p class="dedication" id="momDedication"></p>
+      <blockquote id="momQuote" hidden></blockquote>
+    </section>
+
+    <section class="card center" id="diyaSection" hidden>
+      <div class="diyas" id="diyaField"></div>
+      <div class="countdown" id="diyaCount">0</div>
+      <div data-i18n="mem.diyasLit">diyas lit with love</div>
+      <form id="diyaForm" class="diya-form">
+        <input name="blessing" maxlength="200" data-i18n-ph="mem.blessing" />
+        <button class="btn alt">🪔 <span data-i18n="mem.lightDiya">Light a diya</span></button>
+      </form>
+      <div id="blessings" class="blessings"></div>
+    </section>
+
+    <form class="card" id="memForm" hidden>
+      <h2 data-i18n="mem.shareTitle">Share a memory</h2>
+      <p class="muted" data-i18n="mem.prompt"></p>
+      <div class="grid">
+        <div><label data-i18n="mem.yourName"></label><input name="name" maxlength="80" required /></div>
+        <div><label data-i18n="mem.relation"></label><input name="relation" maxlength="80" /></div>
+      </div>
+      <label data-i18n="mem.memory"></label>
+      <textarea name="text" maxlength="3000" required></textarea>
+      <label class="check"><input type="checkbox" name="isPrivate" /> <span data-i18n="mem.private"></span></label>
+      <p><button class="btn" data-i18n="mem.submit">Share</button></p>
+      <div id="memMsg" class="msg" hidden></div>
+    </form>
+
+    <section class="card" id="wallSection" hidden>
+      <h2 data-i18n="mem.wall">Memories</h2>
+      <div id="wall" class="wall"></div>
+    </section>
+    <section class="card center" id="share">
+      <h2 data-i18n="mem.shareMom">Share Mom's memorial</h2>
+      <p class="muted" data-i18n="mem.shareHint">Invite family and friends to light a diyo and share a memory.</p>
+      <div class="btn-row" style="justify-content:center">
+        <a class="btn" id="shWa" target="_blank" rel="noopener">WhatsApp</a>
+        <a class="btn ghost" id="shViber">Viber</a>
+        <button class="btn ghost" type="button" id="shNative" hidden data-i18n="invite.share">Share</button>
+        <button class="btn ghost" type="button" id="shCopy" data-i18n="mem.copyLink">Copy link</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>🕉️ ॐ शान्ति 🙏</footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/memorial.js"></script>
+  <script>
+    (function () {
+      // Public link only (no personal invite code) so anyone can open it.
+      const url = location.origin + location.pathname;
+      const text = () => I18N.t('mem.shareText') + ' ' + url;
+      const set = () => {
+        document.getElementById('shWa').href = 'https://wa.me/?text=' + encodeURIComponent(text());
+        document.getElementById('shViber').href = 'viber://forward?text=' + encodeURIComponent(text());
+      };
+      set();
+      document.addEventListener('langchange', set);
+      const n = document.getElementById('shNative');
+      if (navigator.share) { n.hidden = false; n.onclick = () => navigator.share({ title: document.title, text: I18N.t('mem.shareText'), url: url }).catch(() => { }); }
+      document.getElementById('shCopy').onclick = e => navigator.clipboard.writeText(url).then(() => { e.target.textContent = '✓'; });
+      document.getElementById('share').addEventListener('click', e => { const b = e.target.closest('a,button'); if (b) API.track('shareMemorial', { via: b.id }); });
+    })();
+  </script>
+</body>
+</html>

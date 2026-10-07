@@ -1,0 +1,54 @@
+﻿// Digital gift / salami: shows payment QR codes uploaded by admin to Drive (Wedding/Gift QR), then records a note.
+(async function () {
+  const msg = document.getElementById('msg');
+  let cfg;
+  try { cfg = await App.boot(); } catch (e) { App.msg(msg, e.message, 'err'); return; }
+  const gid = App.guestId();
+  if (gid) { await App.refreshHousehold(); App.profileSwitcher(document.getElementById('whoSwitch')); }
+  const form = document.getElementById('giftForm');
+  document.getElementById('nameRow').hidden = !!gid;
+  form.name.required = !gid;
+  form.name.value = localStorage.getItem('visitorName') || '';
+
+  let info;
+  try { info = await API.call('getGiftInfo', {}); } catch (e) { App.msg(msg, e.message, 'err'); return; }
+  if (!info.on) { App.msg(msg, I18N.t('common.error'), 'err'); form.hidden = true; return; }
+  form.currency.value = info.currency || 'NPR';
+  const img = id => 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w800';
+  document.getElementById('qrs').innerHTML = info.qrs.length ? info.qrs.map(q =>
+    '<figure class="gift-qr"><img loading="lazy" src="' + img(q.id) + '" alt="' + App.esc(q.label) + '"><figcaption>' + App.esc(q.label) + '</figcaption>' +
+    '<a class="btn ghost sm" href="https://drive.google.com/uc?export=download&id=' + encodeURIComponent(q.id) + '" data-i18n="gift.saveQr">' + App.esc(I18N.t('gift.saveQr')) + '</a></figure>').join('')
+    : '<p class="muted">' + App.esc(I18N.t('gift.noQr')) + '</p>';
+  const fillMethods = () => {
+    const v = form.method.value;
+    form.method.innerHTML = info.qrs.map(q => '<option>' + App.esc(q.label) + '</option>').join('') + '<option value="Cash/Envelope">' + App.esc(I18N.t('gift.cash')) + '</option><option value="Other">' + App.esc(I18N.t('gift.other')) + '</option>';
+    if (v) form.method.value = v;
+  };
+  fillMethods();
+  document.addEventListener('langchange', fillMethods);
+
+  form.proof.onchange = () => { document.getElementById('proofName').textContent = form.proof.files[0] ? form.proof.files[0].name : ''; };
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('sendBtn');
+    btn.disabled = true;
+    try {
+      let mediaId = '';
+      const f = form.proof.files[0];
+      if (f) {
+        const bar = document.getElementById('bar');
+        bar.hidden = false;
+        const up = await App.uploadFile(f, { purpose: 'gift', name: form.name.value.trim() }, p => bar.value = p);
+        mediaId = up.media.id;
+      }
+      await API.call('sendGift', Object.assign(App.who(), {
+        name: form.name.value.trim(), method: form.method.value, amount: form.amount.value, currency: form.currency.value,
+        note: form.note.value.trim(), mediaId: mediaId
+      }));
+      form.hidden = true;
+      document.getElementById('thanks').hidden = false;
+      if (navigator.vibrate) navigator.vibrate(80);
+    } catch (err) { App.msg(msg, err.message, 'err'); btn.disabled = false; }
+  });
+})();

@@ -1,0 +1,640 @@
+﻿// Shared helpers: guest ID, config/theme, language switcher, QR, escaping.
+window.App = (function () {
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function guestId() {
+    const fromUrl = new URLSearchParams(location.search).get('g');
+    if (fromUrl) localStorage.setItem('guestId', fromUrl.trim());
+    return fromUrl || localStorage.getItem('guestId') || '';
+  }
+
+  function withGuest(href) {
+    const g = guestId();
+    return g ? href + (href.indexOf('?') >= 0 ? '&' : '?') + 'g=' + encodeURIComponent(g) : href;
+  }
+
+  // ---------- Remembered person & relatives (household) ----------
+  function memberId() {
+    const fromUrl = new URLSearchParams(location.search).get('m');
+    if (fromUrl) localStorage.setItem('memberId', fromUrl.trim());
+    return fromUrl || localStorage.getItem('memberId') || '';
+  }
+
+  function household() {
+    try { return JSON.parse(localStorage.getItem('household') || '[]'); } catch (e) { return []; }
+  }
+
+  function remember(members, preferId) {
+    localStorage.setItem('household', JSON.stringify(members || []));
+    const cur = memberId();
+    if (preferId && !cur) localStorage.setItem('memberId', preferId);
+    else if (cur && !(members || []).some(m => m.MemberId === cur)) {
+      const p = (members || []).filter(m => m.IsPrimary)[0];
+      localStorage.setItem('memberId', p ? p.MemberId : '');
+    }
+    const me = currentMember();
+    if (me && me.RelationTo) setSide(/^Bride/.test(me.RelationTo) ? 'Bride' : /^Groom/.test(me.RelationTo) ? 'Groom' : 'Both');
+    if (me && me.RelationType) { localStorage.setItem('relType', me.RelationType); applySideTheme(JSON.parse(sessionStorage.getItem('config') || '{}')); }
+  }
+
+  function currentMember() {
+    const id = memberId();
+    const list = household();
+    return list.filter(m => m.MemberId === id)[0] || list.filter(m => m.IsPrimary)[0] || null;
+  }
+
+  function setMember(id) {
+    localStorage.setItem('memberId', id || '');
+    remember(household());
+    document.dispatchEvent(new CustomEvent('memberchange', { detail: currentMember() }));
+  }
+
+  function who() {
+    return { guestId: guestId(), memberId: (currentMember() || {}).MemberId || '' };
+  }
+
+  // Small "Who is using this phone?" chip so each relative plays/uploads as themselves.
+  function profileSwitcher(el) {
+    if (!el) return;
+    const list = household();
+    if (list.length < 2) { el.hidden = true; return; }
+    const cur = currentMember();
+    el.hidden = false;
+    el.innerHTML = '<label>' + esc(I18N.t('who.label')) + ' <select>' + list.map(m =>
+      '<option value="' + esc(m.MemberId) + '"' + (cur && cur.MemberId === m.MemberId ? ' selected' : '') + '>' +
+      esc(I18N.bi(m.Name, m.NameNe || m.Name)) + '</option>').join('') + '</select></label>';
+    el.querySelector('select').onchange = e => setMember(e.target.value);
+  }
+
+  async function refreshHousehold() {
+    const g = guestId();
+    if (!g) return null;
+    try {
+      const d = await API.call('getGuest', { guestId: g, memberId: memberId() });
+      remember(d.members, d.memberId);
+      if (d.guest && d.guest.Side) localStorage.setItem('side', d.guest.Side);
+      return d;
+    } catch (e) { return null; }
+  }
+
+  function siteUrl(page) {
+    return location.origin + location.pathname.replace(/[^/]*$/, '').replace(/admin\/$/, '') + page;
+  }
+
+  async function config() {
+    const cached = sessionStorage.getItem('config');
+    if (cached) return JSON.parse(cached);
+    const c = await API.call('getConfig', {}, { onFresh: v => sessionStorage.setItem('config', JSON.stringify(v)) });
+    sessionStorage.setItem('config', JSON.stringify(c));
+    return c;
+  }
+
+  // ---------- Venues + Google Maps ----------
+  function venueCard(v, chosen) {
+    return '<div class="venue' + (chosen ? ' chosen' : '') + '" data-venue="' + esc(v.VenueId) + '"><div><b>' + esc(I18N.bi(v.NameEn, v.NameNe || v.NameEn)) +
+      '</b><div class="muted">' + esc(v.Address || '') + '</div>' + (v.Notes ? '<div class="muted">' + esc(v.Notes) + '</div>' : '') + '</div>' +
+      '<div class="venue-actions"><a class="btn sm" target="_blank" rel="noopener" href="' + esc(v.Map) + '">🧭 ' + esc(I18N.t('venue.navigate')) + '</a>' +
+      (v.Selectable ? ' <button type="button" class="btn ghost sm" data-choose>' + esc(chosen ? '✅' : I18N.t('venue.choose')) + '</button>' : '') + '</div></div>';
+  }
+
+  function mapsUrl(place) {
+    return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(place || '');
+  }
+
+  // ---------- Sign-in ----------
+  function signedIn(res) {
+    localStorage.setItem('guestId', res.guestId);
+    remember(res.members || []);
+  }
+
+  function signOut() {
+    ['guestId', 'memberId', 'household', 'side'].forEach(k => localStorage.removeItem(k));
+    API.clearCache();
+    try { sessionStorage.clear(); } catch (e) { }
+    location.href = 'index.html';
+  }
+
+  function on(c, key) { return String(c[key]).toUpperCase() === 'TRUE'; }
+
+  function applyTheme(c) {
+    const r = document.documentElement.style;
+    if (c['theme.primary']) r.setProperty('--primary', c['theme.primary']);
+    if (c['theme.accent']) r.setProperty('--accent', c['theme.accent']);
+    if (c['theme.brideColor']) r.setProperty('--bride', c['theme.brideColor']);
+    if (c['theme.groomColor']) r.setProperty('--groom', c['theme.groomColor']);
+    if (c['lang.default']) window.__defaultLang = c['lang.default'];
+    applySideTheme(c);
+  }
+
+  // Auto theme by side: Bride = "Gulabi Marigold", Groom = "Royal Peacock".
+  function setSide(side, c) {
+    if (side === 'Bride' || side === 'Groom' || side === 'Both') localStorage.setItem('side', side);
+    applySideTheme(c || JSON.parse(sessionStorage.getItem('config') || '{}'));
+  }
+
+  function applySideTheme(c) {
+    const side = localStorage.getItem('side');
+    const cls = document.body.classList;
+    cls.remove('side-bride', 'side-groom');
+    const rs = document.documentElement.style;
+    rs.setProperty('--primary', c['theme.primary'] || '#a3172b');
+    rs.setProperty('--accent', c['theme.accent'] || '#e3a018');
+    document.documentElement.dataset.preset = c['theme.preset'] || 'classic';
+    if (!on(c, 'feature.sideThemes') || (side !== 'Bride' && side !== 'Groom')) return;
+    const key = side === 'Bride' ? 'bride' : 'groom';
+    cls.add('side-' + key);
+    const r = document.documentElement.style;
+    if (c['theme.' + key + 'Primary']) r.setProperty('--primary', c['theme.' + key + 'Primary']);
+    if (c['theme.' + key + 'Accent']) r.setProperty('--accent', c['theme.' + key + 'Accent']);
+    // Optional per-group overrides set by the admin (Settings > Theme): family vs friends.
+    const rel = localStorage.getItem('relType');
+    const g = rel === 'Family' ? c['theme.' + key + 'FamilyPrimary'] : rel === 'Friend' ? c['theme.friendPrimary'] : '';
+    if (g) r.setProperty('--primary', g);
+    const ga = rel === 'Family' ? c['theme.' + key + 'FamilyAccent'] : rel === 'Friend' ? c['theme.friendAccent'] : '';
+    if (ga) r.setProperty('--accent', ga);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+  }
+
+  function isClosed(c) {
+    if (c.closed) return true;
+    const end = new Date(c['wedding.endDate']);
+    return !isNaN(end) && new Date() > end;
+  }
+
+  function showClosed(c) {
+    const main = document.querySelector('main');
+    if (!main) return;
+    const mem = on(c, 'app.keepMemorialAfterEnd') && on(c, 'feature.memorial');
+    main.innerHTML = '<section class="card center closed"><div style="font-size:3rem">🪔</div>' +
+      '<h1>' + esc(I18N.t('closed.title')) + '</h1><p>' + esc(I18N.t('closed.text')) + '</p>' +
+      (mem ? '<p><a class="btn" href="memorial.html">' + esc(I18N.t('nav.memorial')) + '</a></p>' : '') + '</section>';
+    document.querySelectorAll('.topbar nav, #live').forEach(el => el.hidden = true);
+  }
+
+  // ---------- Install as app (iOS + Android) ----------
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; });
+
+  function isStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+
+  function platform() {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
+    if (/Android/i.test(ua)) return 'android';
+    return 'other';
+  }
+
+  function inAppBrowser(ua) {
+    return /FBAN|FBAV|FB_IAB|Messenger|Instagram|WhatsApp|Viber|Line\/|Snapchat|TikTok|MicroMessenger|; wv\)/i.test(ua || navigator.userAgent);
+  }
+
+  // WhatsApp/Viber webviews block install, often the file picker, offline caching and Google sign-in.
+  function inAppBanner() {
+    if (!inAppBrowser() || sessionStorage.getItem('inAppHide') || document.getElementById('inAppBanner')) return;
+    const d = document.createElement('div');
+    d.id = 'inAppBanner';
+    d.className = 'inapp-banner';
+    d.setAttribute('role', 'alert');
+    d.innerHTML = '<span>' + esc(I18N.t(platform() === 'ios' ? 'inapp.tipIos' : 'inapp.tipAndroid')) + '</span>' +
+      '<button type="button" class="btn sm" data-copy>' + esc(I18N.t('pwa.copyLink')) + '</button>' +
+      '<button type="button" class="btn ghost sm" data-x aria-label="' + esc(I18N.t('pwa.close')) + '">' + esc(I18N.t('pwa.close')) + '</button>';
+    d.addEventListener('click', async e => {
+      if (e.target.closest('[data-x]')) { sessionStorage.setItem('inAppHide', '1'); d.remove(); }
+      if (e.target.closest('[data-copy]')) { try { await navigator.clipboard.writeText(location.href); e.target.textContent = '✅'; } catch (x) { } }
+    });
+    document.body.prepend(d);
+  }
+
+  function setupInstall(c) {
+    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+      navigator.serviceWorker.register('sw.js').catch(() => { });
+    }
+    if (!on(c, 'feature.installApp') || isStandalone() || document.getElementById('installBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'installBtn';
+    btn.className = 'install-fab';
+    btn.innerHTML = '📲 <span>' + esc(I18N.t('pwa.install')) + '</span>';
+    btn.onclick = installApp;
+    document.body.appendChild(btn);
+    document.addEventListener('langchange', () => btn.querySelector('span').textContent = I18N.t('pwa.install'));
+    window.addEventListener('appinstalled', () => btn.remove());
+    // Around event days (2 days before → last event), gently show the install steps once a day.
+    const today = new Date(), key = today.toISOString().slice(0, 10);
+    const near = (c.eventDates || []).some(d => { const diff = (new Date(d) - today) / 864e5; return diff > -1 && diff < 2; });
+    if (near && localStorage.getItem('installAsked') !== key) {
+      localStorage.setItem('installAsked', key);
+      setTimeout(() => deferredPrompt ? btn.classList.add('pulse') : installApp(), 4000);
+    }
+  }
+
+  async function installApp() {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      return;
+    }
+    const p = platform();
+    let steps;
+    if (inAppBrowser()) {
+      steps = [I18N.t('pwa.inApp'), p === 'ios' ? I18N.t('pwa.openSafari') : I18N.t('pwa.openChrome')];
+    } else if (p === 'ios') {
+      steps = [I18N.t('pwa.iosStep1'), I18N.t('pwa.iosStep2'), I18N.t('pwa.iosStep3')];
+    } else {
+      steps = [I18N.t('pwa.androidStep1'), I18N.t('pwa.androidStep2')];
+    }
+    const sheet = document.createElement('div');
+    sheet.className = 'install-sheet';
+    sheet.innerHTML = '<div class="install-card"><div class="install-icon"><img src="icons/icon-192.png" alt=""></div>' +
+      '<h3>' + esc(I18N.t('pwa.title')) + '</h3><ol>' + steps.map(s => '<li>' + esc(s) + '</li>').join('') + '</ol>' +
+      (inAppBrowser() ? '<p><button class="btn alt" data-copy>' + esc(I18N.t('pwa.copyLink')) + '</button></p>' : '') +
+      (p === 'ios' && !inAppBrowser() ? '<div class="ios-arrow">⬇️</div>' : '') +
+      '<p><button class="btn ghost" data-close>' + esc(I18N.t('pwa.close')) + '</button></p></div>';
+    sheet.addEventListener('click', async e => {
+      if (e.target === sheet || e.target.closest('[data-close]')) sheet.remove();
+      if (e.target.closest('[data-copy]')) { try { await navigator.clipboard.writeText(location.href); e.target.textContent = '✅'; } catch (x) { } }
+    });
+    document.body.appendChild(sheet);
+  }
+
+  // ---------- On-phone video checks (no server cost) ----------
+  // Instant thumbnail: seek to ~1s and grab a small JPEG.
+  function videoThumb(file) {
+    return new Promise(resolve => {
+      if (!/^video\//.test(file.type)) return resolve('');
+      const v = document.createElement('video'), url = URL.createObjectURL(file);
+      const done = r => { URL.revokeObjectURL(url); resolve(r); };
+      v.muted = true; v.playsInline = true; v.preload = 'metadata'; v.src = url;
+      v.onloadedmetadata = () => { v.currentTime = Math.min(1, (v.duration || 2) / 2); };
+      v.onseeked = () => {
+        try {
+          const w = 240, h = Math.round(w * (v.videoHeight || 16) / (v.videoWidth || 9)), c = document.createElement('canvas');
+          c.width = w; c.height = Math.min(h, 427); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+          done(c.toDataURL('image/jpeg', 0.6));
+        } catch (e) { done(''); }
+      };
+      v.onerror = () => done('');
+      setTimeout(() => done(''), 8000);
+    });
+  }
+  // Audio gatekeeper: % of 50 ms windows whose peak is at/near full scale (speakers, dhol).
+  async function audioClipPct(file, maxMB) {
+    if (!/^video\/|^audio\//.test(file.type) || file.size > maxMB * 1048576) return null;
+    const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!AC) return null;
+    try {
+      const buf = await new AC(1, 44100, 44100).decodeAudioData(await file.arrayBuffer());
+      const ch = buf.getChannelData(0), win = Math.floor(buf.sampleRate / 20);
+      let bad = 0, n = 0;
+      for (let i = 0; i + win <= ch.length; i += win, n++) {
+        let clip = 0, sum = 0;
+        for (let j = i; j < i + win; j++) { const a = Math.abs(ch[j]); if (a > 0.98) clip++; sum += a * a; }
+        if (clip > win * 0.01 || Math.sqrt(sum / win) > 0.5) bad++;
+      }
+      return n ? Math.round(bad * 100 / n) : null;
+    } catch (e) { return null; } // codec not decodable on this phone: skip silently
+  }
+
+  // Upload one file straight to Google Drive (resumable session opened by Apps Script) in 8 MB chunks.
+  // Each chunk retries and resumes from where Drive stopped, so big videos survive weak venue signal.
+  function deviceName() {
+    const ua = navigator.userAgent;
+    const m = ua.match(/\(([^)]+)\)/);
+    return (m ? m[1] : ua).slice(0, 80);
+  }
+  // Capture time from EXIF (JPEG/HEIC store it as text "YYYY:MM:DD HH:MM:SS" in the first bytes); falls back to lastModified.
+  async function takenAt(file) {
+    try {
+      if (/^image\//.test(file.type)) {
+        const buf = await file.slice(0, 131072).arrayBuffer();
+        const txt = new TextDecoder('latin1').decode(buf);
+        const m = txt.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+        if (m && m[1] > '1990') { const d = new Date(m[1] + '-' + m[2] + '-' + m[3] + 'T' + m[4] + ':' + m[5] + ':' + m[6]); if (!isNaN(d)) return d.toISOString(); }
+      }
+    } catch (e) { /* fall back */ }
+    return file.lastModified ? new Date(file.lastModified).toISOString() : '';
+  }
+  // Same window rule as eventForTime_ in apps-script/Pure.gs: 2h before start until next event (max 12h).
+  function eventForTime(events, iso) {
+    const t = new Date(iso).getTime(), H = 3600000;
+    if (!iso || isNaN(t)) return '';
+    const list = (events || []).filter(e => e && e.DateTime && !isNaN(new Date(e.DateTime)))
+      .map(e => ({ id: e.EventId, at: new Date(e.DateTime).getTime() })).sort((a, b) => a.at - b.at);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const end = Math.min(list[i + 1] ? list[i + 1].at - 2 * H : Infinity, list[i].at + 12 * H);
+      if (t >= list[i].at - 2 * H && t < end) return list[i].id;
+    }
+    return '';
+  }
+  // Data saver: shrink big photos on the phone (longest side 2048px, JPEG) until under ~1.5 MB.
+  // Videos, GIFs, small files and anything the browser cannot decode are returned untouched.
+  async function compressImage(file, maxBytes, maxSide) {
+    maxBytes = maxBytes || 1.5 * 1048576; maxSide = maxSide || 2048;
+    if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type) || file.size <= maxBytes || typeof createImageBitmap !== 'function') return file;
+    try {
+      const img = await createImageBitmap(file);
+      const s = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      let blob = null;
+      for (const q of [0.85, 0.75, 0.6]) {
+        blob = await new Promise(r => c.toBlob(r, 'image/jpeg', q));
+        if (blob && blob.size <= maxBytes) break;
+      }
+      if (!blob || blob.size >= file.size) return file;
+      const out = new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg', lastModified: file.lastModified });
+      out.originalSize = file.size;
+      return out;
+    } catch (e) { return file; }
+  }
+
+  async function uploadFile(file, extra, onProgress) {
+    const w = who();
+    const s = await API.call('startUpload', Object.assign({ guestId: w.guestId, memberId: w.memberId, fileName: file.name || 'screenshot.png',
+      mimeType: file.type || 'image/png', size: file.size, origin: location.origin,
+      takenAt: await takenAt(file), device: deviceName() }, extra || {}));
+    const CHUNK = 8 * 1024 * 1024; // must be a multiple of 256 KB
+    const put = (start, end) => new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open('PUT', s.uploadUrl);
+      if (end) x.setRequestHeader('Content-Range', 'bytes ' + start + '-' + (end - 1) + '/' + file.size);
+      else x.setRequestHeader('Content-Range', 'bytes */' + file.size);
+      x.upload.onprogress = e => { if (onProgress && e.lengthComputable && end) onProgress(Math.round((start + e.loaded) * 100 / file.size)); };
+      x.onload = () => resolve(x);
+      x.onerror = () => reject(new Error(I18N.t('photo.failed')));
+      x.send(end ? file.slice(start, end) : null);
+    });
+    const nextByte = x => { const r = x.getResponseHeader('Range'); return r ? Number(r.split('-')[1]) + 1 : 0; };
+    let pos = 0, tries = 0, x;
+    while (true) {
+      try {
+        x = await put(pos, Math.min(pos + CHUNK, file.size));
+        tries = 0;
+      } catch (err) {
+        if (++tries > 8) throw err;
+        await new Promise(r => setTimeout(r, Math.min(30000, 1000 * Math.pow(2, tries))));
+        if (!navigator.onLine) await new Promise(r => addEventListener('online', r, { once: true }));
+        try { x = await put(0, 0); } catch (e2) { continue; } // ask Drive how much it already has
+      }
+      if (x.status === 200 || x.status === 201) break;
+      if (x.status === 308) { pos = nextByte(x); continue; }
+      if (x.status >= 500 && ++tries <= 8) { await new Promise(r => setTimeout(r, 2000 * tries)); continue; }
+      throw new Error('Upload error ' + x.status);
+    }
+    const fileId = JSON.parse(x.responseText).id;
+    if (onProgress) onProgress(100);
+    return API.call('finishUpload', { token: s.token, fileId: fileId, thumb: (extra && extra.thumb) || '' });
+  }
+
+  // ---------- Live feed: static live.json on GitHub Pages (no Apps Script load); falls back to getLive ----------
+  async function fetchLive() {
+    const url = APP_CONFIG.LIVE_JSON_URL;
+    if (url && !APP_CONFIG.DEMO_MODE) {
+      try {
+        const r = await fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 'ts=' + Date.now(), { cache: 'no-store' });
+        if (r.ok) { const j = await r.json(); if (j && j.updatedAt) return j; }
+      } catch (e) { /* fall back */ }
+    }
+    return { live: await API.call('getLive', {}, { fresh: true }), fallback: true };
+  }
+  function liveFeed(cb, ms) {
+    let last = '';
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const d = await fetchLive();
+        if (d.freeze) freezeBanner(d.freeze);
+        const sig = JSON.stringify(d.live) + '|' + JSON.stringify(d.ritual || null) + '|' + (d.updatedAt || '');
+        if (sig !== last) { last = sig; cb(d); }
+      } catch (e) { /* weak signal: keep last view */ }
+    };
+    tick();
+    const t = setInterval(tick, ms || APP_CONFIG.LIVE_REFRESH_MS);
+    document.addEventListener('visibilitychange', tick);
+    return () => clearInterval(t);
+  }
+
+  function privacyNote() {
+    if (localStorage.getItem('privacyOk')) return;
+    const d = document.createElement('div');
+    d.className = 'privacy-note';
+    d.innerHTML = '<span>' + esc(I18N.t('privacy.note')) + '</span><button type="button" class="btn sm">' + esc(I18N.t('privacy.ok')) + '</button>';
+    d.querySelector('button').onclick = () => { localStorage.setItem('privacyOk', '1'); d.remove(); };
+    document.body.appendChild(d);
+  }
+
+  // ---------- Silent activity tracking ----------
+  let tracking = false;
+  function startTracking() {
+    if (tracking) return;
+    tracking = true;
+    API.track('view', { title: document.title, lang: I18N.mode() });
+    const label = el => (el.getAttribute('data-track') || el.getAttribute('aria-label') || el.textContent || el.name || el.id || '').trim().slice(0, 60);
+    document.addEventListener('click', e => {
+      const el = e.target.closest('a,button,[data-track]');
+      if (el) API.track('click', { target: label(el), href: el.getAttribute('href') || '' });
+    }, true);
+    document.addEventListener('change', e => {
+      const el = e.target;
+      if (!el || !el.name && !el.id) return;
+      const secret = /pass|code|dob|key/i.test((el.name || '') + el.type);
+      const value = el.type === 'file' ? Array.from(el.files || []).map(f => f.name + ' (' + Math.round(f.size / 1024) + 'KB)').join(', ')
+        : el.type === 'checkbox' ? el.checked : secret ? '***' : String(el.value).slice(0, 300);
+      API.track('input', { field: el.name || el.id, value: value, form: (el.form && el.form.id) || '' });
+    }, true);
+    document.addEventListener('submit', e => API.track('submit', { form: e.target.id || e.target.name || '' }), true);
+    document.addEventListener('langchange', () => API.track('language', { lang: I18N.mode() }));
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') API.track('leave', { seconds: Math.round(performance.now() / 1000) }); });
+  }
+
+  // ---------- Top banner: personal things to do ----------
+  async function nudges(c) {
+    if (!on(c, 'feature.nudges') || document.getElementById('nudge')) return;
+    let list;
+    try { list = await API.call('getNudges', who()); } catch (e) { return; }
+    if (!list || !list.length) return;
+    const today = Math.floor(Date.now() / 86400000);
+    const seen = JSON.parse(sessionStorage.getItem('nudgeSeen') || '[]');
+    const fresh = list.filter(n => seen.indexOf(n.en) < 0);
+    const pool = fresh.length ? fresh : list;
+    // Tasks (non-prompts) first, then a random fun prompt.
+    const tasks = pool.filter(n => n.icon !== '✨');
+    const n = tasks.length ? tasks[0] : pool[(today + Math.floor(Math.random() * pool.length)) % pool.length];
+    const bar = document.createElement('a');
+    bar.id = 'nudge';
+    bar.className = 'nudge';
+    bar.setAttribute('data-track', 'nudge:' + n.en);
+    bar.href = withGuest(n.href);
+    const paint = () => bar.innerHTML = '<span class="nudge-icon">' + esc(n.icon) + '</span><span class="nudge-text">' + esc(I18N.bi(n.en, n.ne)) +
+      '</span><span class="nudge-go">›</span><button type="button" class="nudge-x" aria-label="close">×</button>';
+    paint();
+    document.addEventListener('langchange', paint);
+    bar.addEventListener('click', e => {
+      seen.push(n.en);
+      sessionStorage.setItem('nudgeSeen', JSON.stringify(seen));
+      if (e.target.closest('.nudge-x')) { e.preventDefault(); bar.remove(); }
+    });
+    const top = document.querySelector('.topbar');
+    if (top) top.after(bar); else document.body.prepend(bar);
+  }
+
+  function langSwitcher(el) {
+    if (!el) return;
+    el.innerHTML = ['en', 'ne', 'mix'].map(m =>
+      '<button type="button" data-lang="' + m + '" class="' + (I18N.mode() === m ? 'active' : '') + '">' +
+      (m === 'en' ? 'English' : m === 'ne' ? 'नेपाली' : 'Nepanglish') + '</button>').join('');
+    el.onclick = e => {
+      const b = e.target.closest('button[data-lang]');
+      if (!b) return;
+      I18N.set(b.dataset.lang);
+      langSwitcher(el);
+    };
+  }
+
+  function qr(el, text, size) {
+    if (!el || typeof qrcode === 'undefined') return;
+    const q = qrcode(0, 'M');
+    q.addData(text);
+    q.make();
+    el.innerHTML = q.createSvgTag({ cellSize: size || 5, margin: 2, scalable: true });
+  }
+
+  function passUrl(id) {
+    return location.origin + location.pathname.replace(/[^/]*$/, '').replace(/admin\/$/, '') + 'pass.html?g=' + encodeURIComponent(id);
+  }
+
+  function msg(el, text, type) {
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'msg ' + (type || '');
+    el.hidden = !text;
+  }
+
+  // ---------- Elder Mode: big text, only the essentials ----------
+  function elderMode() { return localStorage.getItem('elderMode') === '1'; }
+  function setElderMode(onOff) {
+    localStorage.setItem('elderMode', onOff ? '1' : '0');
+    document.documentElement.classList.toggle('elder', !!onOff);
+    document.dispatchEvent(new Event('eldermodechange'));
+  }
+  function elderToggle(c) {
+    if (!on(c, 'feature.elderMode') || document.getElementById('elderToggle')) return;
+    const b = document.createElement('button');
+    b.type = 'button'; b.id = 'elderToggle'; b.className = 'elder-toggle';
+    const paint = () => { b.textContent = elderMode() ? 'A−' : 'A+'; b.setAttribute('aria-pressed', elderMode()); b.setAttribute('aria-label', I18N.t('elder.toggle')); b.title = I18N.t('elder.toggle'); };
+    paint();
+    b.onclick = () => { setElderMode(!elderMode()); paint(); };
+    document.addEventListener('langchange', paint);
+    const top = document.querySelector('.topbar');
+    if (top) top.appendChild(b);
+  }
+  // Last pass kept on the phone so the QR still opens with no signal at the gate.
+  function savePassSnapshot(p) { try { localStorage.setItem('passSnapshot', JSON.stringify({ at: Date.now(), pass: p })); } catch (e) { } }
+  function passSnapshot() { try { return (JSON.parse(localStorage.getItem('passSnapshot') || 'null') || {}).pass || null; } catch (e) { return null; } }
+
+  // ---------- Phones down: calm banner + engagement pause (schedule/pass/invite stay open) ----------
+  function frozen(c) { return !!(c && c.freeze && c.freeze.on); }
+  function freezeBanner(f) {
+    let b = document.getElementById('freezeBanner');
+    const was = document.documentElement.classList.contains('frozen');
+    document.documentElement.classList.toggle('frozen', !!(f && f.on));
+    if (was !== !!(f && f.on)) document.dispatchEvent(new CustomEvent('app:freeze', { detail: f || { on: false } }));
+    if (!f || !f.on) { if (b) b.remove(); return; }
+    if (!b) {
+      b = document.createElement('div'); b.id = 'freezeBanner'; b.className = 'freeze-banner'; b.setAttribute('role', 'status');
+      document.body.insertBefore(b, document.body.firstChild);
+    }
+    const t = I18N.bi(f.messageEn, f.messageNe || f.messageEn);
+    b.innerHTML = '<span class="freeze-ico" aria-hidden="true">🙏</span><span>' + esc(t) + '</span>';
+  }
+
+  // ---------- Swipe / long-press gestures (no library; pointer events, works with mouse too) ----------
+  // handlers: { right(row), left(row), hold(row) }. Rows slide with the finger; 35% width or 90px commits.
+  function swipe(container, selector, handlers) {
+    if (!container) return;
+    let s = null;
+    const reset = el => { el.style.transform = ''; el.classList.remove('swiping', 'go-right', 'go-left'); };
+    container.addEventListener('pointerdown', e => {
+      const row = e.target.closest(selector);
+      if (!row || e.target.closest('button, a, input, select, textarea') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      s = { row: row, x: e.clientX, y: e.clientY, dx: 0, moved: false, id: e.pointerId };
+      if (handlers.hold) s.timer = setTimeout(() => { if (s && !s.moved) { const r = s.row; s = null; if (navigator.vibrate) navigator.vibrate(30); handlers.hold(r); } }, 550);
+    });
+    container.addEventListener('pointermove', e => {
+      if (!s || e.pointerId !== s.id) return;
+      const dx = e.clientX - s.x, dy = e.clientY - s.y;
+      if (!s.moved && Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { clearTimeout(s.timer); s = null; return; }
+      if (Math.abs(dx) > 8) { s.moved = true; clearTimeout(s.timer); }
+      if (!s.moved) return;
+      s.dx = dx;
+      s.row.classList.add('swiping');
+      s.row.classList.toggle('go-right', dx > 0); s.row.classList.toggle('go-left', dx < 0);
+      s.row.style.transform = 'translateX(' + dx + 'px) rotate(' + (dx / 40) + 'deg)';
+    });
+    const end = e => {
+      if (!s || (e && e.pointerId !== s.id)) return;
+      clearTimeout(s.timer);
+      const row = s.row, dx = s.dx, far = Math.abs(dx) > Math.min(90, row.offsetWidth * 0.35);
+      s = null; reset(row);
+      if (far && dx > 0 && handlers.right) handlers.right(row);
+      else if (far && dx < 0 && handlers.left) handlers.left(row);
+    };
+    container.addEventListener('pointerup', end);
+    container.addEventListener('pointercancel', () => { if (s) { clearTimeout(s.timer); reset(s.row); s = null; } });
+    container.addEventListener('contextmenu', e => { if (handlers.hold && e.target.closest(selector)) e.preventDefault(); });
+  }
+
+  async function boot() {
+    document.documentElement.classList.toggle('elder', elderMode());
+    try {
+      const c = await config();
+      const code = new URLSearchParams(location.search).get('c');
+      if (code && !/\/admin\//.test(location.pathname)) {
+        try {
+          const r = await API.call('resolveCode', { code: code });
+          localStorage.setItem('guestId', r.guestId);
+          const u = new URL(location.href); u.searchParams.delete('c'); u.searchParams.set('g', r.guestId);
+          history.replaceState(null, '', u);
+        } catch (x) { }
+      }
+      applyTheme(c);
+      I18N.apply();
+      langSwitcher(document.getElementById('langSwitch'));
+      document.querySelectorAll('a[data-guest-link]').forEach(a => a.href = withGuest(a.getAttribute('href')));
+      const navMem = document.getElementById('navMemorial');
+      if (navMem) navMem.hidden = !on(c, 'feature.memorial');
+      document.querySelectorAll('[data-feature]').forEach(el => { if (!on(c, el.dataset.feature)) el.hidden = true; });
+      memberId();
+      profileSwitcher(document.getElementById('whoSwitch'));
+      document.addEventListener('memberchange', () => profileSwitcher(document.getElementById('whoSwitch')));
+      document.querySelectorAll('.topbar nav a[href^="register.html"]').forEach(a => a.hidden = !on(c, 'feature.registration'));
+      const isAdminPage = /\/admin\//.test(location.pathname);
+      if (!isAdminPage && isClosed(c)) {
+        const memorialPage = /memorial\.html$/.test(location.pathname);
+        if (!(memorialPage && on(c, 'app.keepMemorialAfterEnd'))) {
+          showClosed(c);
+          throw new Error('closed');
+        }
+      }
+      if (!isAdminPage) { inAppBanner(); setupInstall(c); startTracking(); nudges(c); privacyNote(); elderToggle(c); freezeBanner(c.freeze); }
+      return c;
+    } catch (e) {
+      I18N.apply();
+      langSwitcher(document.getElementById('langSwitch'));
+      throw e;
+    }
+  }
+
+  return {
+    esc, guestId, withGuest, config, on, applyTheme, setSide, langSwitcher, qr, passUrl, msg, boot, isStandalone,
+    memberId, household, remember, currentMember, setMember, who, profileSwitcher, refreshHousehold, siteUrl,
+    venueCard, mapsUrl, signedIn, signOut, uploadFile, videoThumb, audioClipPct, fetchLive, liveFeed, takenAt, eventForTime,
+    elderMode, setElderMode, savePassSnapshot, passSnapshot, inAppBrowser, inAppBanner, compressImage, swipe, frozen, freezeBanner
+  };
+})();

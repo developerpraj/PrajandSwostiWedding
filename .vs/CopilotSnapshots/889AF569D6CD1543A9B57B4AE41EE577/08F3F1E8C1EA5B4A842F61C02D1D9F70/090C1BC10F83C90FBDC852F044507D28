@@ -1,0 +1,88 @@
+﻿<!DOCTYPE html>
+<html lang="ne">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>शुभविवाह · Wedding</title>
+  <link rel="stylesheet" href="css/base.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🪔 शुभविवाह</div>
+    <nav>
+      <a href="index.html" data-guest-link data-i18n="nav.home">Home</a>
+      <a href="register.html" data-guest-link data-i18n="nav.register">Register</a>
+      <a href="pass.html" data-guest-link data-i18n="nav.pass">My Pass</a>
+      <a href="memorial.html" data-guest-link data-i18n="nav.memorial" id="navMemorial">In Memory of Mom</a>
+    </nav>
+    <div class="lang-switch" id="langSwitch"></div>
+  </header>
+  <div id="live" class="live-banner" hidden></div>
+
+  <main>
+    <section class="card center">
+      <p class="muted">॥ श्री गणेशाय नमः ॥</p>
+      <h1 id="couple">…</h1>
+      <p data-i18n="home.title">We are getting married</p>
+      <div class="countdown" id="days">–</div>
+      <div data-i18n="home.daysToGo">days to go</div>
+      <p id="welcome" class="muted"></p>
+      <p>
+        <a class="btn" href="register.html" data-guest-link data-i18n="home.registerCta">Register</a>
+        <a class="btn ghost" href="pass.html" data-guest-link data-i18n="home.passCta">Pass</a>
+      </p>
+      <div id="msg" class="msg" hidden></div>
+    </section>
+
+    <a href="memorial.html" data-guest-link id="memorialCard" class="card center" style="display:block;text-decoration:none" hidden>
+      <div style="font-size:2rem">🪔</div>
+      <p data-i18n="home.memorialCard">In loving memory of our Mom</p>
+    </a>
+  </main>
+
+  <footer>🙏</footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async function () {
+      let cfg;
+      try { cfg = await App.boot(); } catch (e) { App.msg(document.getElementById('msg'), e.message, 'err'); return; }
+
+      function render() {
+        document.getElementById('couple').textContent =
+          I18N.bi(cfg['couple.brideEn'] + ' & ' + cfg['couple.groomEn'], cfg['couple.brideNe'] + ' र ' + cfg['couple.groomNe']);
+        const d = new Date(cfg['wedding.date']);
+        document.getElementById('days').textContent = isNaN(d) ? '–' : Math.max(0, Math.ceil((d - new Date()) / 86400000));
+      }
+      render();
+      document.addEventListener('langchange', render);
+
+      const memOn = App.on(cfg, 'feature.memorial');
+      document.getElementById('memorialCard').hidden = !memOn;
+      document.getElementById('navMemorial').hidden = !memOn;
+      document.querySelectorAll('a[href^="register.html"]').forEach(a => a.hidden = !App.on(cfg, 'feature.registration'));
+
+      const id = App.guestId();
+      if (id) {
+        try {
+          const g = await API.call('getGuest', { guestId: id });
+          const n = g.guest.Name || g.guest.Family || '';
+          const setWelcome = () => document.getElementById('welcome').textContent = I18N.bi('Namaste, ' + n + ' 🙏', 'नमस्ते, ' + (g.guest.NameNe || n) + ' 🙏');
+          setWelcome();
+          document.addEventListener('langchange', setWelcome);
+        } catch (e) { /* invalid link: show generic page */ }
+      }
+
+      if (App.on(cfg, 'feature.live')) {
+        const box = document.getElementById('live');
+        const show = l => { box.hidden = !l; if (l) box.textContent = '🔴 ' + I18N.t('home.liveNow') + ': ' + I18N.bi(l.en, l.ne); };
+        show(cfg.live);
+        setInterval(async () => { try { show(await API.call('getLive')); } catch (e) { } }, APP_CONFIG.LIVE_REFRESH_MS);
+      }
+    })();
+  </script>
+</body>
+</html>

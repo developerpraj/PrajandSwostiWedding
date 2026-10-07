@@ -1,0 +1,96 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>Name Tags &amp; Drink Bands</title>
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+  <style>
+    .sheet { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6mm; }
+    .tag {
+      border: 2px solid var(--primary); border-radius: 10px; padding: 4mm; display: flex; gap: 4mm; align-items: center;
+      background: #fff; page-break-inside: avoid; height: 60mm; position: relative; overflow: hidden;
+    }
+    .tag .strip { position: absolute; left: 0; top: 0; bottom: 0; width: 6mm; }
+    .tag.Bride .strip { background: var(--bride); }
+    .tag.Groom .strip { background: var(--groom); }
+    .tag.Both .strip { background: linear-gradient(var(--bride), var(--groom)); }
+    .tag .info { flex: 1; padding-left: 4mm; }
+    .tag .name { font-size: 1.4rem; font-weight: 700; line-height: 1.2; }
+    .tag .rel { margin-top: 2mm; font-size: 1rem; }
+    .tag .qr svg { width: 28mm; height: 28mm; }
+    .tag .dot { display: inline-block; width: 5mm; height: 5mm; border-radius: 50%; vertical-align: middle; margin-left: 2mm; }
+    .dot.green { background: var(--green); } .dot.yellow { background: var(--yellow); }
+    .dot.red { background: var(--red); } .dot.blue { background: var(--blue); }
+
+    .bands { display: grid; gap: 3mm; }
+    .wrist {
+      height: 22mm; border-radius: 11mm; display: flex; align-items: center; gap: 4mm; padding: 0 6mm;
+      color: #fff; font-weight: 700; page-break-inside: avoid; border: 1px dashed #0004;
+    }
+    .wrist.green { background: var(--green); } .wrist.yellow { background: var(--yellow); color: #2b1d16; }
+    .wrist.red { background: var(--red); } .wrist.blue { background: var(--blue); }
+    .wrist .qr { background: #fff; border-radius: 4px; padding: 1mm; }
+    .wrist .qr svg { width: 18mm; height: 18mm; display: block; }
+    .wrist .label { flex: 1; }
+
+    @media print {
+      @page { size: A4; margin: 10mm; }
+      .tag, .wrist { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🏷️ Name Tags &amp; Drink Bands</div>
+    <nav><a href="index.html">← Admin</a></nav>
+    <div class="lang-switch" id="langSwitch"></div>
+  </header>
+
+  <main style="max-width:1100px">
+    <div id="msg" class="msg" hidden></div>
+
+    <div class="card no-print">
+      <div class="grid">
+        <div>
+          <label>Print</label>
+          <select id="mode">
+            <option value="tags">Name tags (relation to bride/groom)</option>
+            <option value="bands">Drinking wristbands</option>
+          </select>
+        </div>
+        <div>
+          <label>Guests</label>
+          <select id="filter">
+            <option value="registered">Registered &amp; attending</option>
+            <option value="all">All guests</option>
+            <option value="Bride">Bride side only</option>
+            <option value="Groom">Groom side only</option>
+          </select>
+        </div>
+        <div><label>Search</label><input id="search" placeholder="Name…" /></div>
+        <div><label class="check"><input type="checkbox" id="showDot" checked /> Show drink band dot on tags</label></div>
+      </div>
+      <p>
+        <button class="btn" onclick="window.print()">🖨️ Print</button>
+        <span class="muted">Tip: use the language switch (EN / ने / ने+EN) before printing.</span>
+      </p>
+      <p class="muted">
+        Bands: <span class="band green">Green = ID verified</span> <span class="band yellow">Yellow = check ID</span>
+        <span class="band red">Red = no alcohol</span> <span class="band blue">Blue = non-drinker</span>
+      </p>
+    </div>
+
+    <div id="out"></div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/i18n.js"></script>
+  <script src="../js/app.js"></script>
+  <script src="../js/nametags.js"></script>
+</body>
+</html>

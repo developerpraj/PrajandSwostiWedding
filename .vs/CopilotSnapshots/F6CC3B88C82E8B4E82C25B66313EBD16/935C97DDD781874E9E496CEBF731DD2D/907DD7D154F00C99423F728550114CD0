@@ -1,0 +1,2491 @@
+﻿/**
+ * Wedding App backend - Google Apps Script (free).
+ * In Apps Script, add every file from apps-script/ (Code.gs, Pure.gs, Live.gs) with the same names.
+ *
+ * Setup:
+ *  1. Create a Google Sheet (personal account) -> Extensions -> Apps Script.
+ *  2. Paste this file and save.
+ *  3. Run `setup` once (authorize). It creates/migrates all tabs, default settings,
+ *     Drive folders and a default admin passcode. Safe to run again after updates.
+ *  4. Project Settings -> Script Properties -> change ADMIN_PASSCODE.
+ *  5. Deploy -> New deployment -> Web app -> Execute as: Me, Access: Anyone.
+ *  6. Copy the /exec URL into js/config.js (API_URL).
+ */
+
+const SHEETS = {
+  Settings: ['Key', 'Value', 'Type', 'Group', 'Description'],
+  Guests: ['GuestId', 'Name', 'NameNe', 'Family', 'Side', 'Relation', 'RelationNe', 'Groups', 'Phone', 'Email',
+    'DOB', 'Age', 'NonDrinker', 'AgeVerified', 'AdmitCount', 'AttendingCount', 'Status', 'Meal', 'Allergies',
+    'Arrival', 'Departure', 'AccommodationEligible', 'Table', 'InviteSent', 'InviteOpened', 'Registered',
+    'GoogleEmail', 'VenueId', 'Tags', 'InviteCode', 'LinkRevoked', 'LinkExpires', 'Events',
+        'Approved', 'ReviewStatus', 'ReviewedBy', 'ReviewedAt', 'ChangedAt', 'ChangeNote', 'InviteOpenedAt'],
+  Members: ['MemberId', 'GuestId', 'Name', 'NameNe', 'RelationTo', 'RelationType', 'Relation', 'RelationNe', 'DOB',
+    'NonDrinker', 'AgeVerified', 'Attending', 'IsPrimary', 'CheckedIn', 'CheckedInAt', 'CreatedAt'],
+  Events: ['EventId', 'NameEn', 'NameNe', 'DateTime', 'Venue', 'MapLink', 'DressCode', 'RevealStyle', 'UnlockAt',
+    'Groups', 'Order', 'Visible'],
+  EventRsvp: ['GuestId', 'EventId', 'Response', 'Count', 'UpdatedAt', 'Attended', 'AttendedCount', 'AttendedAt'],
+  Admins: ['Email', 'Name', 'Role', 'Passcode', 'Active', 'AddedAt', 'LastSeen', 'Duties'],
+  ThankYous: ['ThankId', 'GuestId', 'GiftId', 'Name', 'Channel', 'To', 'Message', 'SentBy', 'SentAt'],
+  Rooms: ['RoomId', 'Name', 'Location', 'Capacity', 'CheckIn', 'CheckOut', 'Notes'],
+  Accommodation: ['RequestId', 'GuestId', 'Nights', 'People', 'Needs', 'Status', 'RoomId', 'UpdatedAt'],
+  Media: ['MediaId', 'GuestId', 'MemberId', 'Name', 'Side', 'EventId', 'DriveFileId', 'Type', 'MimeType', 'FileName',
+    'Status', 'Timestamp', 'TakenAt', 'Device', 'SizeBytes', 'Anon', 'AudioFlag', 'ClipPct', 'Thumb', 'Category', 'Transcript', 'Summary', 'Starred'],
+  Whispers: ['WhisperId', 'GuestId', 'MemberId', 'Name', 'Side', 'Text', 'MediaId', 'DriveFileId', 'Timestamp', 'Device', 'Session', 'Status'],
+  Games: ['GameId', 'Type', 'TitleEn', 'TitleNe', 'QuestionEn', 'QuestionNe', 'OptionsEn', 'OptionsNe', 'Answer',
+    'Points', 'Groups', 'Active', 'Order'],
+  Scores: ['GuestId', 'MemberId', 'Name', 'Side', 'GameId', 'Correct', 'Points', 'Timestamp'],
+  Live: ['Timestamp', 'MessageEn', 'MessageNe', 'Active'],
+  Rituals: ['RitualId', 'EventId', 'Order', 'Icon', 'NameEn', 'NameNe', 'MeaningEn', 'MeaningNe', 'Status', 'StartedAt', 'Visible'],
+  MomProfile: ['Key', 'Value'],
+  MomMemories: ['MemoryId', 'GuestId', 'Name', 'Relation', 'Type', 'Text', 'DriveFileId', 'Status', 'IsPrivate', 'Timestamp'],
+  MomDiyas: ['GuestId', 'Name', 'Blessing', 'Timestamp'],
+  Venues: ['VenueId', 'NameEn', 'NameNe', 'Address', 'Country', 'Lat', 'Lng', 'MapLink', 'Notes', 'Selectable', 'Order'],
+  // ---- Admin-only planning (never returned by public actions) ----
+  Vibe: ['PersonId', 'Side', 'Label', 'Circle', 'Attendance', 'AgeBand', 'EduProf', 'Fun', 'Confirmed', 'Notes'],
+  Traditions: ['TraditionId', 'Name', 'Origin', 'Description', 'OurVersion', 'Phase', 'Include', 'VibeBoost', 'Owner', 'Notes'],
+  Scenarios: ['ScenarioId', 'Name', 'Region', 'Window', 'Weeks', 'Condition', 'Budget', 'Currency', 'Pros', 'Cons', 'Chosen'],
+  Invites: ['InviteId', 'GuestId', 'Name', 'NameNe', 'Lang', 'Status', 'DriveFileId', 'RequestedAt', 'ApprovedAt', 'Hidden'],
+  Proofs: ['ProofId', 'GuestId', 'MemberId', 'Name', 'Side', 'GameId', 'DriveFileId', 'Status', 'Points', 'Timestamp', 'Hidden'],
+  Gifts: ['GiftId', 'GuestId', 'MemberId', 'Name', 'Side', 'Method', 'Amount', 'Currency', 'Note', 'ProofFileId', 'Status', 'Timestamp', 'ThankedAt',
+    'Relation', 'Source', 'Phone', 'EventId', 'Anon', 'ThankedVia', 'EnteredBy', 'PhotoId',
+    'AuditStatus', 'AuditedAt', 'AuditedBy', 'AuditNote'],
+  AuditLog: ['Timestamp', 'Action', 'Details', 'By', 'Role', 'GuestId', 'Name', 'Summary']
+};
+
+const RELATION_TO = ['Bride', 'Groom', "Bride's family", "Groom's family", 'Both'];
+const RELATION_TYPES = ['Family', 'Friend', 'Colleague', 'Neighbor', 'Other'];
+
+const DEFAULT_SETTINGS = [
+  ['lang.default', 'mix', 'select:en,ne,mix', 'General', 'Default language'],
+  ['couple.brideEn', 'Swosti', 'text', 'General', 'Bride name (English)'],
+  ['couple.brideNe', 'स्वस्ति', 'text', 'General', 'Bride name (Nepali)'],
+  ['couple.groomEn', 'Prajjwol', 'text', 'General', 'Groom name (English)'],
+  ['couple.groomNe', 'प्रज्ज्वल', 'text', 'General', 'Groom name (Nepali)'],
+  ['invite.messageEn', 'Dear {name}, Prajjwol and Swosti invite you to our wedding ceremony.', 'text', 'Invitation', 'Personal invitation line (English). {name} = guest name'],
+  ['invite.messageNe', 'आदरणीय {name}, प्रज्ज्वल र स्वस्ति हाम्रो विवाह समारोहमा तपाईंलाई हार्दिक निमन्त्रणा गर्दछौं।', 'text', 'Invitation', 'Personal invitation line (Nepali). {name} = guest name'],
+  ['feature.mantra', 'TRUE', 'toggle', 'Features', 'Show the wedding mantra on the home page'],
+  ['invite.mantraTop', '॥ श्री गणेशाय नमः ॥', 'text', 'Invitation', 'Small blessing line at the very top'],
+  ['invite.mantra', 'मङ्गलम् भगवान् विष्णुः मङ्गलम् गरुडध्वजः । मङ्गलम् पुण्डरीकाक्षः मङ्गलाय तनो हरिः ॥', 'text', 'Invitation', 'Wedding mantra (Devanagari)'],
+  ['invite.mantraMeaning', 'May Lord Vishnu, who rides Garuda and has lotus eyes, bless this union with auspiciousness.', 'text', 'Invitation', 'Mantra meaning (shown small, English)'],
+  ['wedding.date', '2026-12-12T10:00', 'datetime', 'General', 'Main ceremony date/time'],
+  ['invite.requireApproval', 'TRUE', 'toggle', 'Invitation', 'Guests only see their event days after an admin approves them'],
+  ['wedding.endDate', '2026-12-15T23:59', 'datetime', 'General', 'App turns OFF automatically after this date/time'],
+  ['app.keepMemorialAfterEnd', 'TRUE', 'toggle', 'General', 'Keep memorial page open after the end date'],
+  ['feature.registration', 'TRUE', 'toggle', 'Features', 'Guest registration'],
+  ['registration.open', 'TRUE', 'toggle', 'Registration', 'Registration open'],
+  ['feature.accommodation', 'TRUE', 'toggle', 'Features', 'Accommodation requests'],
+  ['accommodation.open', 'TRUE', 'toggle', 'Accommodation', 'Accept accommodation requests'],
+  ['feature.drinkBand', 'TRUE', 'toggle', 'Features', 'Age verification & drinking band'],
+  ['drink.legalAge', '18', 'number', 'Drinking', 'Legal drinking age'],
+  ['feature.nameTags', 'TRUE', 'toggle', 'Features', 'Name tags'],
+  ['feature.live', 'TRUE', 'toggle', 'Features', "What's happening now banner"],
+  ['feature.memorial', 'TRUE', 'toggle', 'Features', 'Memorial for Mom'],
+  ['memorial.moderation', 'TRUE', 'toggle', 'Memorial', 'Review memories before showing'],
+  ['feature.media', 'TRUE', 'toggle', 'Features', 'Photo & video sharing'],
+  ['media.moderation', 'FALSE', 'toggle', 'Media', 'Review uploads before others can see them'],
+  ['media.allowVisitors', 'TRUE', 'toggle', 'Media', 'Allow uploads from venue QR without personal link'],
+  ['media.maxSizeMB', '500', 'number', 'Media', 'Max photo size (MB)'],
+  ['media.maxVideoMB', '250', 'number', 'Media', 'Max video size (MB)'],
+  ['media.largeAlbumUrl', '', 'text', 'Media', 'Shared album link (e.g. Google Photos) shown when a file is bigger than the max size'],
+  ['feature.rituals', 'TRUE', 'toggle', 'Features', 'Pocket Pandit: live ritual guide for guests'],
+  ['media.audioCheck', 'TRUE', 'toggle', 'Media', 'Check video audio for speaker/dhol distortion before upload'],
+  ['media.clipPct', '50', 'number', 'Media', 'Flag as muted B-roll when this % of audio is clipped'],
+  ['media.audioCheckMaxMB', '150', 'number', 'Media', 'Only analyse audio for videos up to this size (phone memory)'],
+  ['media.thumbs', 'TRUE', 'toggle', 'Media', 'Make instant video thumbnails on the phone'],
+  ['media.chronoNames', 'TRUE', 'toggle', 'Media', 'Rename files Event_YYYY-MM-DD_HH-mm-ss_Guest_Original for editors'],
+  ['media.categories', 'Candid|BTS|Video Guestbook / Blessing', 'text', 'Media', 'Upload categories guests can pick (separated by |)'],
+  ['feature.games', 'TRUE', 'toggle', 'Features', 'Games'],
+  ['points.upload', '5', 'number', 'Games', 'Points per photo/video shared'],
+  ['points.checkIn', '5', 'number', 'Games', 'Points for the team when a guest is checked in (QR)'],
+  ['points.onTime', '5', 'number', 'Games', 'Extra points when checked in before the event start time'],
+  ['engage.promptsEn', 'Share a photo with the couple|Share your outfit of the day|Capture a candid laugh|Share a picture with your family|Find someone new and take a selfie', 'text', 'Engagement', 'Daily prompts (English, separated by |)'],
+  ['engage.promptsNe', 'दुलाहा-दुलहीसँगको फोटो बाँड्नुहोस्|आजको पहिरनको फोटो बाँड्नुहोस्|हाँसेको क्षण कैद गर्नुहोस्|परिवारसँगको फोटो बाँड्नुहोस्|नयाँ मान्छेसँग सेल्फी लिनुहोस्', 'text', 'Engagement', 'Daily prompts (Nepali, separated by |)'],
+  ['auth.phone', 'TRUE', 'toggle', 'Sign-in', 'Allow sign-in with phone number (+ invite code or birth date)'],
+  ['auth.google', 'FALSE', 'toggle', 'Sign-in', 'Allow "Sign in with Google"'],
+  ['auth.googleClientId', '', 'text', 'Sign-in', 'Google OAuth Web Client ID (free, from Google Cloud console)'],
+  ['contact.channels', 'whatsapp,sms,email', 'text', 'Sign-in', 'Contact choices offered to guests (whatsapp, sms, email)'],
+  ['contact.requireEmail', 'FALSE', 'toggle', 'Sign-in', 'Require an email address (off = phone is enough)'],
+  ['feature.venues', 'TRUE', 'toggle', 'Features', 'Venue choice + Google Maps navigation'],
+  ['feature.installApp', 'TRUE', 'toggle', 'Features', 'Offer "Install app" button'],
+  ['feature.elderMode', 'TRUE', 'toggle', 'Features', 'Elder Mode: A+ button for big text and only the essentials'],
+  ['app.helpPhone', '', 'text', 'General', 'Help phone number shown as a big call button in Elder Mode'],
+  ['data.softDelete', 'TRUE', 'toggle', 'Data', 'Guest deletes only hide items (nothing is really deleted). Admin only.'],
+  ['log.activity', 'TRUE', 'toggle', 'Data', 'Record guest activity to a Drive log (silent)'],
+  ['data.guestFolders', 'TRUE', 'toggle', 'Data', 'Keep a Drive folder per household (Wedding/Guests) with profile.json, activity-log.json and invitation PDFs'],
+  ['feature.invites', 'TRUE', 'toggle', 'Features', 'Guests can create a PDF invitation (admin approves)'],
+  ['invite.autoApprove', 'FALSE', 'toggle', 'Invitation', 'Approve invitation requests automatically'],
+  ['invite.titleEn', 'You are invited to our Brahma Bibaha', 'text', 'Invitation', 'Invitation heading (English)'],
+  ['invite.titleNe', 'हाम्रो ब्रह्म विवाहमा हार्दिक निमन्त्रणा', 'text', 'Invitation', 'Invitation heading (Nepali)'],
+  ['feature.nudges', 'TRUE', 'toggle', 'Features', 'Top banner with personal things to do'],
+  ['feature.gifts', 'TRUE', 'toggle', 'Features', 'Digital gift / salami page (QR images from Drive folder Wedding/Gift QR)'],
+  ['gift.currency', 'NPR', 'text', 'Gifts', 'Default currency shown to guests'],
+  ['gift.showAmounts', 'FALSE', 'toggle', 'Gifts', 'Show gift amounts to admin dashboard only (never to guests)'],
+  ['feature.sideThemes', 'TRUE', 'toggle', 'Features', 'Bride/Groom side colour themes'],
+  ['feature.attended', 'TRUE', 'toggle', 'Features', 'After events, guests can tick which functions they actually attended'],
+  ['thanks.tplGift', 'Namaste {name} 🙏 Thank you so much for your {gift} at our {event}. Your love and blessings mean the world to us. — {couple}', 'text', 'Thank-you', 'Thank-you template when a gift was given ({name} {gift} {event} {relation} {couple})'],
+  ['thanks.tplPresence', 'Namaste {name} 🙏 Thank you for being with us at {event}. Having you there made it truly special. — {couple}', 'text', 'Thank-you', 'Thank-you template for presence only'],
+  ['thanks.tplNe', 'नमस्ते {name} 🙏 {event} मा तपाईंको माया, आशिर्वाद र {gift} को लागि हार्दिक धन्यवाद। — {couple}', 'text', 'Thank-you', 'Nepali thank-you template'],
+  ['theme.primary', '#a3172b', 'color', 'Theme', 'Primary color (sindoor crimson)'],
+  ['theme.accent', '#e3a018', 'color', 'Theme', 'Accent color (marigold)'],
+  ['theme.brideColor', '#e8a317', 'color', 'Theme', 'Bride side tag color'],
+  ['theme.groomColor', '#7a1f3d', 'color', 'Theme', 'Groom side tag color'],
+  ['theme.bridePrimary', '#c2185b', 'color', 'Theme', 'Bride side theme (Gulabi Marigold) - primary'],
+  ['theme.brideAccent', '#f4a300', 'color', 'Theme', 'Bride side theme (Gulabi Marigold) - accent'],
+  ['theme.groomPrimary', '#0f5c63', 'color', 'Theme', 'Groom side theme (Royal Peacock) - primary'],
+  ['theme.groomAccent', '#c9a227', 'color', 'Theme', 'Groom side theme (Royal Peacock) - accent'],
+  ['theme.brideFamilyPrimary', '', 'color', 'Theme', 'Optional: Bride family group primary (blank = bride side theme)'],
+  ['theme.brideFamilyAccent', '', 'color', 'Theme', 'Optional: Bride family group accent (blank = side accent)'],
+  ['theme.groomFamilyPrimary', '', 'color', 'Theme', 'Optional: Groom family group primary (blank = groom side theme)'],
+  ['theme.groomFamilyAccent', '', 'color', 'Theme', 'Optional: Groom family group accent (blank = side accent)'],
+  ['theme.friendPrimary', '', 'color', 'Theme', 'Optional: Friends group primary (blank = side theme)'],
+  ['theme.friendAccent', '', 'color', 'Theme', 'Optional: Friends group accent (blank = side accent)'],
+  ['theme.preset', 'classic', 'select:classic,royal,garden,midnight,blush,heritage', 'Theme', 'Background mood for every page'],
+    ['freeze.on', 'FALSE', 'toggle', 'Phones down', 'Freeze games, uploads and leaderboard now (schedule, pass and invite stay open)'],
+    ['freeze.until', '', 'datetime', 'Phones down', 'Auto-unfreeze at this time (blank = until switched off)'],
+    ['freeze.windows', '', 'text', 'Phones down', 'Scheduled freezes: start>end;start>end (ISO times), e.g. 2026-02-14T10:00>2026-02-14T11:30'],
+    ['freeze.messageEn', 'Phones down! The Kanyadaan is starting. We\'ll reopen the games at the reception!', 'text', 'Phones down', 'Banner while frozen (English)'],
+    ['freeze.messageNe', 'फोन राख्नुहोस्! कन्यादान सुरु हुँदैछ। खेलहरू रिसेप्सनमा फेरि खुल्नेछन्!', 'text', 'Phones down', 'Banner while frozen (Nepali)']
+  ];
+
+const DEFAULT_MOM = [
+  ['nameEn', 'Mom'], ['nameNe', 'आमा'], ['years', ''], ['photoUrl', ''],
+  ['dedicationEn', 'Your love and blessings are with us in every step.'],
+  ['dedicationNe', 'तपाईंको माया र आशीर्वाद हाम्रो हरेक पाइलामा साथ छ।'],
+  ['quoteEn', ''], ['quoteNe', '']
+];
+
+const SAMPLE_GAMES = [
+  ['G1', 'quiz', 'How well do you know the couple?', 'दुलाहा-दुलहीलाई कति चिन्नुहुन्छ?', 'Where did the couple first meet?', 'दुलाहा-दुलही पहिलो पटक कहाँ भेटे?',
+    'College|Office|Family function|Online', 'कलेज|अफिस|पारिवारिक कार्यक्रम|अनलाइन', '0', '10', 'All', 'TRUE', '1'],
+  ['G2', 'quiz', "Bride's side special", 'दुलहीपक्ष विशेष', "What is the bride's favorite food?", 'दुलहीको मनपर्ने खाना के हो?',
+    'Momo|Dal Bhat|Sel Roti|Pani Puri', 'मःम|दालभात|सेलरोटी|पानीपुरी', '0', '10', 'bride', 'TRUE', '2'],
+  ['G3', 'quiz', "Groom's side special", 'दुलाहापक्ष विशेष', "What is the groom's favorite sport?", 'दुलाहाको मनपर्ने खेल कुन हो?',
+       'Football|Cricket|Basketball|Volleyball', 'फुटबल|क्रिकेट|बास्केटबल|भलिबल', '1', '10', 'groom', 'TRUE', '3'],
+    ['G4', 'screenshot', 'Screenshot challenge', 'स्क्रिनसट चुनौती', 'Share a screenshot of your oldest chat or photo with the couple', 'दुलाहा-दुलहीसँगको सबैभन्दा पुरानो च्याट वा फोटोको स्क्रिनसट पठाउनुहोस्', '', '', '', '15', 'All', 'TRUE', '4']
+];
+
+// ---------- Entry points ----------
+
+function doGet() {
+  return json_({ ok: true, message: 'Wedding API running' });
+}
+
+function doPost(e) {
+  let action = '';
+  try {
+    const raw = (e && e.postData && e.postData.contents) || '{}';
+    if (raw.length > 30 * 1024 * 1024) return json_({ ok: false, error: 'Request too large' });
+    let req;
+    try { req = JSON.parse(raw); } catch (pe) { return json_({ ok: false, error: 'Invalid request' }); }
+    if (!req || typeof req !== 'object' || Array.isArray(req)) return json_({ ok: false, error: 'Invalid request' });
+    action = typeof req.action === 'string' ? req.action : '';
+    if (!/^[A-Za-z][A-Za-z0-9.]{0,60}$/.test(action)) return json_({ ok: false, error: 'unknown action' });
+    if (req.data !== undefined && (typeof req.data !== 'object' || req.data === null || Array.isArray(req.data))) return json_({ ok: false, error: 'Invalid data' });
+    const data = cleanInput_(req.data || {}, 0);
+    validateInput_(action, data);
+    if (action.indexOf('admin.') === 0) {
+      const who = adminWho_(req.adminKey);
+      if (!who) { activity_('admin', 'admin.denied', {}, req.client); return json_({ ok: false, error: 'unauthorized' }); }
+      if (!roleAllows_(who.role, action, who.duties)) return json_({ ok: false, error: 'Your role (' + who.role + ') cannot do that' });
+      ADMIN_ = who;
+      const fn = ADMIN_ACTIONS[action];
+      if (!fn) return json_({ ok: false, error: 'unknown action' });
+      const lock = /^admin\.(save|delete|import|thank|gen|check|verify|set|approve|reject|audit|freeze)/.test(action) ? LockService.getScriptLock() : null;
+      if (lock) lock.waitLock(20000);
+      let out;
+      try { out = fn(data); } finally { if (lock) lock.releaseLock(); }
+      if (lock || /^admin\.(moderate|post|ritualNow|assignRoom|linkControl)/.test(action)) invalidateGuest_('');
+      if (/^admin\.(postLive|ritualNow)$/.test(action)) publishLive_(true);
+      else if (/^admin\.(moderateMedia|moderateProof|checkIn|checkInMember)$/.test(action)) publishLive_(false);
+      if (!/^admin\.(login|stats|guests|people|rooms|settings|events|media|games|memories|venues|planner|invites|proofs|logs)$/.test(action)) {
+        activity_('admin', action, Object.assign({ by: who.name }, data), req.client);
+        const gid = str_(data.GuestId || data.guestId) || (action === 'admin.saveGuest' && typeof out === 'string' ? out : '');
+        const label = action === 'admin.saveGuest' ? (data.GuestId ? 'editGuest' : 'addGuest') : action.replace(/^admin\./, '');
+        log_(label, str_(req.client && req.client.page), { guestId: gid, name: str_(data.Name || data.name), summary: auditSummary_(data) });
+      }
+      return json_({ ok: true, data: out });
+    }
+    if (action === 'track') { activity_('guest', 'ui.' + str_(data.event).slice(0, 40), data, req.client); return json_({ ok: true, data: true }); }
+    if (action === 'trackBatch') { activityBatch_(data.events || [], req.client); return json_({ ok: true, data: true }); }
+    const fn = PUBLIC_ACTIONS[action];
+    if (!fn) return json_({ ok: false, error: 'unknown action' });
+    if (data.guestId) linkGuard_(tryGuest_(data.guestId));
+    if (action !== 'getConfig' && isClosed_()) {
+      const memorialAction = ['getMemorial', 'lightDiya', 'submitMemory'].indexOf(action) >= 0;
+      if (!(memorialAction && settings_()['app.keepMemorialAfterEnd'] === 'TRUE')) return json_({ ok: false, error: 'closed' });
+    }
+    const out = PUBLIC_WRITE_ACTIONS.indexOf(action) >= 0 ? withLock_(() => fn(data, req.client)) : fn(data, req.client);
+    const skipLog = ['searchPeople', 'checkName', 'startUpload', 'signIn', 'findPass', 'register', 'markOpened', 'selectMember', 'finishUpload', 'deleteMedia', 'generateCard'];
+    if (action.indexOf('get') !== 0 && skipLog.indexOf(action) < 0) {
+      const who = data.guestId ? tryGuest_(data.guestId) : null;
+      log_(action, str_(req.client && req.client.page), { guestId: str_(data.guestId), name: who ? who.Name : str_(data.name || data.visitorName), by: memberName_(who, data.memberId) || 'visitor', role: 'guest', summary: auditSummary_(data) });
+    }
+    if (PUBLIC_WRITE_ACTIONS.indexOf(action) >= 0 && data.guestId) invalidateGuest_(data.guestId);
+    if (action === 'submitAnswer' || action === 'finishUpload') publishLive_(false);
+    return json_({ ok: true, data: out });
+  } catch (err) {
+    const m = String(err && err.message || err);
+    const user = /^(VALIDATION|unauthorized|closed|Invalid|Not approved|Awaiting)/i.test(m) || err && err.userFacing;
+    if (!user) { try { console.error(action + ': ' + m + '\n' + (err && err.stack || '')); activity_('error', action, { message: m.slice(0, 500) }, null); } catch (x) { } }
+    if (/Lock timeout|timed out waiting for lock|Service invoked too many times|Exceeded maximum execution time/i.test(m)) return json_({ ok: false, error: 'The server is busy. Please try again in a moment.', retry: true });
+    return json_({ ok: false, error: m.replace(/^VALIDATION:\s*/, '') });
+  }
+}
+
+// ---------- Input safety: every request is cleaned and validated before any action runs ----------
+const MAX_TEXT_ = 2000, MAX_LONG_TEXT_ = 10000, MAX_KEYS_ = 200, MAX_ITEMS_ = 1000;
+const LONG_FIELDS_ = /^(Text|Message|Description|MeaningEn|MeaningNe|Notes|Note|OurVersion|Value|Blessing|json|profile|events|chunk|data|base64|content)$/i;
+function bad_(msg) { const e = new Error('VALIDATION: ' + msg); e.userFacing = true; throw e; }
+
+/** Trims strings, strips control chars, caps lengths/depth/size, and neutralises spreadsheet formula injection. */
+function cleanInput_(v, depth, key) {
+  if (depth > 6) bad_('Data is nested too deeply');
+  if (v === null || v === undefined) return v;
+  if (typeof v === 'string') {
+    if (/^(chunk|data|base64|content|file|thumb|Thumb|credential|token|signature|image|dataUrl)$/i.test(key || '')) return v;
+    let s = v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+    const cap = LONG_FIELDS_.test(key || '') ? MAX_LONG_TEXT_ : MAX_TEXT_;
+    if (s.length > cap) bad_((key || 'Text') + ' is too long (max ' + cap + ' characters)');
+    if (/^[=@]/.test(s) || /^[+\-][^\d\s]/.test(s)) s = "'" + s;
+    return s;
+  }
+  if (typeof v === 'number') { if (!isFinite(v)) bad_((key || 'Number') + ' is not a valid number'); return v; }
+  if (typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (v.length > MAX_ITEMS_) bad_('Too many items');
+    return v.map(x => cleanInput_(x, depth + 1, key));
+  }
+  if (typeof v === 'object') {
+    const ks = Object.keys(v);
+    if (ks.length > MAX_KEYS_) bad_('Too many fields');
+    const o = {};
+    ks.forEach(k => { if (k === '__proto__' || k === 'constructor' || k === 'prototype') return; o[k] = cleanInput_(v[k], depth + 1, k); });
+    return o;
+  }
+  return undefined;
+}
+
+const ID_RE_ = /^[A-Za-z0-9_\-:.]{1,64}$/;
+const EMAIL_RE_ = /^[^\s@'"<>]+@[^\s@'"<>]+\.[^\s@'"<>]{2,}$/;
+const PHONE_RE_ = /^\+?[0-9 ()\-.]{6,20}$/;
+
+/** Field-level rules shared by all actions (only checked when the field is present and non-empty). */
+function validateInput_(action, d) {
+  const has = k => d[k] !== undefined && d[k] !== null && String(d[k]) !== '';
+  ['guestId', 'GuestId', 'memberId', 'MemberId', 'eventId', 'EventId', 'mediaId', 'MediaId', 'gameId', 'GameId', 'inviteId', 'InviteId', 'RoomId', 'roomId', 'VenueId', 'RitualId', 'GiftId']
+    .forEach(k => { if (has(k) && !ID_RE_.test(String(d[k]))) bad_('Invalid ' + k); });
+  ['email', 'Email'].forEach(k => { if (has(k) && !EMAIL_RE_.test(String(d[k]))) bad_('Please enter a valid email address'); });
+  ['phone', 'Phone'].forEach(k => { if (has(k) && !PHONE_RE_.test(String(d[k]).replace(/^'/, ''))) bad_('Please enter a valid phone number'); });
+  ['Name', 'name', 'NameNe', 'Family'].forEach(k => { if (has(k) && String(d[k]).length > 120) bad_(k + ' is too long'); });
+  ['count', 'Count', 'People', 'Nights', 'Capacity', 'Points', 'Amount'].forEach(k => {
+    if (!has(k)) return; const n = Number(d[k]);
+    if (!isFinite(n) || n < 0 || n > 1000000) bad_(k + ' must be a positive number');
+  });
+  ['DOB', 'dob', 'DateTime', 'UnlockAt', 'CheckIn', 'CheckOut', 'takenAt'].forEach(k => {
+    if (has(k) && isNaN(new Date(String(d[k]).replace(/^'/, '')).getTime())) bad_(k + ' is not a valid date');
+  });
+  if (has('lang') && !/^(en|ne|mix|both)$/i.test(String(d.lang))) bad_('Unsupported language');
+  if (has('Response') && !/^(yes|no|maybe|)$/i.test(String(d.Response))) bad_('Response must be yes, no or maybe');
+  if (has('MapLink') && !/^https?:\/\//i.test(String(d.MapLink))) bad_('Map link must start with http(s)://');
+  if (action === 'register' && !has('guestId') && !has('name') && !has('Name')) bad_('Name is required');
+  if (action === 'admin.saveGuest' && !has('Name')) bad_('Name is required');
+  if (action === 'admin.saveAdmin' && !has('Email')) bad_('Email is required');
+  if (/^admin\.(review|approve|reject|guestFolder|loadProfile|generateCard)$/.test(action) === false) return;
+  if (action !== 'admin.generateCard' && !has('guestId') && !has('GuestId')) bad_('Guest is required');
+}
+
+/** Runs fn inside the script lock so concurrent sheet writes queue instead of overwriting each other. */
+function withLock_(fn) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) throw new Error('Lock timeout');
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+// ---------- Guest profile cache (6 h). Version keys make invalidation cheap: per guest + global (admin writes). ----------
+const GUEST_CACHE_SECONDS = 21600;
+function guestVersion_(guestId) {
+  const c = CacheService.getScriptCache();
+  return (c.get('gv_all') || '0') + '.' + (c.get('gv_' + guestId) || '0');
+}
+function invalidateGuest_(guestId) {
+  try { CacheService.getScriptCache().put(guestId ? 'gv_' + guestId : 'gv_all', String(Date.now()), GUEST_CACHE_SECONDS); } catch (e) { }
+}
+function cachedGuest_(kind, d, fn) {
+  if (!d || !d.guestId) return fn(d);
+  const cache = CacheService.getScriptCache();
+  const key = [kind, d.guestId, d.memberId || '', guestVersion_(d.guestId)].join('_').slice(0, 250);
+  const hit = cache.get(key);
+  if (hit) return JSON.parse(hit);
+  const out = fn(d);
+  // Do not keep a locked event hidden past its unlock time.
+  const unlocks = ((out && out.events) || []).filter(e => e.locked && e.UnlockAt).map(e => new Date(e.UnlockAt).getTime()).filter(t => !isNaN(t));
+  const ttl = unlocks.length ? Math.max(1, Math.min(GUEST_CACHE_SECONDS, Math.floor((Math.min.apply(null, unlocks) - Date.now()) / 1000))) : GUEST_CACHE_SECONDS;
+  try { cache.put(key, JSON.stringify(out), ttl); } catch (e) { /* over 100KB */ }
+  return out;
+}
+
+const PUBLIC_ACTIONS = {
+  getConfig: getConfig_,
+  getHome: getHome_,
+  getGuest: d => cachedGuest_('guest', d, getGuest_),
+  register: register_,
+  requestAccommodation: requestAccommodation_,
+  getPass: d => cachedGuest_('pass', d, getPass_),
+  getLive: getLive_,
+  getRituals: () => getRituals_(),
+  startUpload: startUpload_,
+  finishUpload: finishUpload_,
+  getGallery: getGallery_,
+  deleteMedia: deleteMedia_,
+  getGames: getGames_,
+  submitAnswer: submitAnswer_,
+  getLeaderboard: () => publicLeaderboard_(leaderboard_()),
+  getMemorial: getMemorial_,
+  lightDiya: lightDiya_,
+  submitMemory: submitMemory_,
+  signIn: signIn_,
+  findPass: findPass_,
+  resolveCode: resolveCode_,
+  // Sent by the page only after a real tap/scroll/key, so link-preview bots never count as "opened".
+  markOpened: (d, c) => { markOpened_(findGuest_(d.guestId), d.memberId, c); return true; },
+  selectMember: (d, c) => {
+    const g = findGuest_(d.guestId);
+    log_('selectMember', str_(c && c.page), { guestId: g.GuestId, name: g.Name, by: memberName_(g, d.memberId) || g.Name, role: 'guest', summary: 'Chose "' + (memberName_(g, d.memberId) || '?') + '" as who is using this phone' });
+    return true;
+  },
+  markAttended: markAttended_,
+  chooseVenue: chooseVenue_,
+  searchPeople: searchPeople_,
+  checkName: checkName_,
+  getNudges: getNudges_,
+  requestInvite: requestInvite_,
+  getInvite: getInvite_,
+  generateCard: generateCard_,
+  submitProof: submitProof_,
+  getGiftInfo: getGiftInfo_,
+  sendWhisper: sendWhisper_,
+  sendGift: sendGift_
+};
+
+const ADMIN_ACTIONS = {
+  'admin.login': () => ({ valid: true }),
+  'admin.stats': adminStats_,
+  'admin.guests': () => table_('Guests').map(withDerived_),
+  'admin.people': adminPeople_,
+  'admin.saveGuest': adminSaveGuest_,
+  'admin.household': adminHousehold_,
+  'admin.deleteGuest': d => { membersOf_(d.guestId).forEach(m => deleteBy_('Members', 'MemberId', m.MemberId)); deleteBy_('Guests', 'GuestId', d.guestId); return true; },
+  'admin.saveMember': adminSaveMember_,
+  'admin.deleteMember': d => { deleteBy_('Members', 'MemberId', d.memberId); return true; },
+  'admin.genCodes': adminGenCodes_,
+  'admin.linkControl': adminLinkControl_,
+  'admin.importGuests': adminImportGuests_,
+  'admin.setAccommodationEligible': d => updateBy_('Guests', 'GuestId', d.guestId, { AccommodationEligible: bool_(d.value) ? 'TRUE' : 'FALSE' }),
+  'admin.rooms': () => ({ rooms: table_('Rooms'), requests: table_('Accommodation') }),
+  'admin.saveRoom': adminSaveRoom_,
+  'admin.assignRoom': adminAssignRoom_,
+  'admin.settings': () => table_('Settings'),
+  'admin.saveSetting': d => upsert_('Settings', 'Key', d.key, { Key: d.key, Value: d.value }),
+  'admin.checkIn': d => firstCheckIn_('Guests', 'GuestId', d.guestId, d.at),
+  'admin.verifyAge': d => updateBy_('Guests', 'GuestId', d.guestId, { AgeVerified: bool_(d.value) ? 'TRUE' : 'FALSE' }),
+  'admin.verifyMember': d => updateBy_('Members', 'MemberId', d.memberId, { AgeVerified: bool_(d.value) ? 'TRUE' : 'FALSE' }),
+  'admin.checkInMember': d => firstCheckIn_('Members', 'MemberId', d.memberId, d.at),
+  'admin.undoCheckIn': d => d.memberId
+    ? updateBy_('Members', 'MemberId', d.memberId, { CheckedIn: 'FALSE', CheckedInAt: '' })
+    : updateBy_('Guests', 'GuestId', d.guestId, { CheckedIn: 'FALSE', CheckedInAt: '' }),
+  'admin.events': () => table_('Events'),
+  'admin.review': adminReview_,
+  'admin.saveEvent': d => {
+    if (!str_(d.NameEn)) throw new Error('Event name required');
+    const row = {};
+    SHEETS.Events.forEach(c => { if (d[c] !== undefined) row[c] = str_(d[c]).slice(0, 500); });
+    if (!row.EventId) { row.EventId = id_(); if (!row.Visible) row.Visible = 'TRUE'; if (!row.Groups) row.Groups = 'All'; }
+    saveRow_('Events', 'EventId', row);
+    invalidateGuest_('');
+    return row.EventId;
+  },
+  'admin.deleteEvent': d => {
+    deleteBy_('Events', 'EventId', d.eventId);
+    table_('Guests').filter(g => eventList_(g.Events).indexOf(d.eventId) >= 0)
+      .forEach(g => updateBy_('Guests', 'GuestId', g.GuestId, { Events: eventList_(g.Events).filter(x => x !== d.eventId).join(',') }));
+    invalidateGuest_('');
+    return true;
+  },
+  'admin.media': () => table_('Media').reverse(),
+  'admin.mediaExport': () => adminMediaExport_(),
+  'admin.moderateMedia': d => updateBy_('Media', 'MediaId', d.mediaId, { Status: d.status }),
+  'admin.mediaNote': d => updateBy_('Media', 'MediaId', d.mediaId, {
+    Transcript: str_(d.transcript).slice(0, 5000), Summary: str_(d.summary).slice(0, 200), Category: str_(d.category).slice(0, 40),
+    Starred: bool_(d.starred) ? 'TRUE' : '', AudioFlag: ['ok', 'distorted', ''].indexOf(str_(d.audioFlag)) >= 0 ? str_(d.audioFlag) : ''
+  }),
+  'admin.games': () => table_('Games'),
+  'admin.saveGame': adminSaveGame_,
+  'admin.postLive': adminPostLive_,
+  'admin.rituals': () => table_('Rituals').sort((a, b) => (Number(a.Order) || 0) - (Number(b.Order) || 0)),
+  'admin.saveRitual': d => { if (!d.RitualId) d.RitualId = id_(); return saveRow_('Rituals', 'RitualId', d); },
+  'admin.ritualNow': d => ritualNow_(d),
+  'admin.envelopePhoto': d => envelopePhoto_(d),
+  'admin.memories': () => table_('MomMemories'),
+  'admin.memoryBook': () => ({
+    profile: (() => { const p = {}; table_('MomProfile').forEach(r => p[r.Key] = r.Value); return p; })(),
+    memories: table_('MomMemories').filter(m => m.Status === 'Approved'),
+    diyas: table_('MomDiyas').filter(d => str_(d.Blessing))
+  }),
+  'admin.moderateMemory': d => updateBy_('MomMemories', 'MemoryId', d.memoryId, { Status: d.status }),
+  'admin.saveMom': d => { Object.keys(d).forEach(k => upsert_('MomProfile', 'Key', k, { Key: k, Value: d[k] })); return true; },
+  'admin.venues': () => table_('Venues'),
+  'admin.saveVenue': d => saveRow_('Venues', 'VenueId', d),
+  'admin.deleteVenue': d => { deleteBy_('Venues', 'VenueId', d.id); return true; },
+  'admin.planner': adminPlanner_,
+  'admin.saveVibe': d => saveRow_('Vibe', 'PersonId', d),
+  'admin.deleteVibe': d => { deleteBy_('Vibe', 'PersonId', d.id); return true; },
+  'admin.saveTradition': d => saveRow_('Traditions', 'TraditionId', d),
+  'admin.deleteTradition': d => { deleteBy_('Traditions', 'TraditionId', d.id); return true; },
+  'admin.saveScenario': d => saveRow_('Scenarios', 'ScenarioId', d),
+  'admin.deleteScenario': d => { deleteBy_('Scenarios', 'ScenarioId', d.id); return true; },
+  'admin.invites': () => table_('Invites').reverse(),
+  'admin.approveInvite': adminApproveInvite_,
+  'admin.generateCard': adminGenerateCard_,
+  'admin.loadProfile': adminLoadProfile_,
+  'admin.syncFolders': () => { organizeDrive_(); syncAllGuestFolders(); return true; },
+  'admin.formatSheets': () => { formatSheets(); return true; },
+  'admin.guestFolder': d => { const f = guestFolder_(findGuest_(d.guestId)); guestFolderSync_(d.guestId, null); return f.getUrl(); },
+  'admin.rejectInvite': d => updateBy_('Invites', 'InviteId', d.inviteId, { Status: 'Rejected' }),
+  'admin.proofs': () => table_('Proofs').reverse(),
+  'admin.gifts': () => table_('Gifts').reverse(),
+  'admin.thankGift': d => updateBy_('Gifts', 'GiftId', d.giftId, { ThankedAt: now_(), Status: 'Thanked', ThankedVia: str_(d.via).slice(0, 20) }),
+  'admin.saveCashGift': d => adminSaveCashGift_(Object.assign(d, { enteredBy: ADMIN_ && ADMIN_.name })),
+  'admin.auditGift': d => adminAuditGift_(Object.assign(d, { by: ADMIN_ && ADMIN_.name })),
+  'admin.setTable': d => updateBy_('Guests', 'GuestId', d.guestId, { Table: str_(d.table).slice(0, 20) }),
+  'admin.blastList': d => blastList_(table_('Guests'), { side: str_(d.side), members: table_('Members') }),
+  'admin.freeze': d => adminFreeze_(d),
+  'admin.thankQueue': adminThankQueue_,
+  'admin.logThanks': adminLogThanks_,
+  'admin.me': () => Object.assign({}, ADMIN_, { tabs: dutyTabs_(ADMIN_) }),
+  'admin.admins': () => table_('Admins').map(a => Object.assign({}, a, { Passcode: a.Passcode ? '••••' + String(a.Passcode).slice(-2) : '' })),
+  'admin.saveAdmin': d => {
+    const role = String(d.Role || 'helper').toLowerCase();
+    const row = { Email: str_(d.Email).trim().toLowerCase(), Name: str_(d.Name).slice(0, 80),
+      Role: ['owner', 'manager', 'helper'].indexOf(role) >= 0 ? role : 'helper',
+      Active: d.Active === false ? 'FALSE' : 'TRUE' };
+    if (d.Duties !== undefined) row.Duties = dutiesOf_(d.Duties).join(',');
+    if (!row.Email) throw new Error('Email required');
+    const ex = table_('Admins').filter(a => a.Email === row.Email)[0];
+    if (!ex || d.reset) row.Passcode = id_() + id_().slice(0, 4);
+    if (!ex) row.AddedAt = now_();
+    upsert_('Admins', 'Email', row.Email, row);
+    return { passcode: row.Passcode || '' };
+  },
+  'admin.deleteAdmin': d => updateBy_('Admins', 'Email', str_(d.email).toLowerCase(), { Active: 'FALSE' }),
+  'admin.whispers': () => table_('Whispers').reverse(),
+  'admin.analytics': () => adminAnalytics_(),
+  'admin.moderateProof': d => updateBy_('Proofs', 'ProofId', d.proofId, { Status: d.status }),
+  'admin.logs': () => ({ guest: logBook_('guest').getUrl(), admin: logBook_('admin').getUrl() })
+};
+
+// ---------- Setup / migration ----------
+
+function setup() {
+  const ss = SpreadsheetApp.getActive();
+  Object.keys(SHEETS).forEach(name => {
+    let sh = ss.getSheetByName(name);
+    if (!sh) sh = ss.insertSheet(name);
+    if (sh.getLastRow() === 0) {
+      sh.appendRow(SHEETS[name]);
+    } else {
+      const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+      SHEETS[name].filter(c => head.indexOf(c) < 0).forEach(c => sh.getRange(1, sh.getLastColumn() + 1).setValue(c));
+    }
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, sh.getLastColumn()).setFontWeight('bold');
+  });
+  const existing = table_('Settings').map(s => s.Key);
+  DEFAULT_SETTINGS.forEach(r => { if (existing.indexOf(r[0]) < 0) sheet_('Settings').appendRow(r); });
+  // Replace old placeholder couple names only (never overwrites names the admin typed).
+  const placeholders = { 'couple.brideEn': 'Bride', 'couple.groomEn': 'Groom', 'couple.brideNe': 'दुलही', 'couple.groomNe': 'दुलाहा' };
+  table_('Settings').forEach(s => {
+    if (placeholders[s.Key] && s.Value === placeholders[s.Key]) updateBy_('Settings', 'Key', s.Key, { Value: DEFAULT_SETTINGS.filter(r => r[0] === s.Key)[0][1] });
+  });
+  const momKeys = table_('MomProfile').map(m => m.Key);
+  DEFAULT_MOM.forEach(r => { if (momKeys.indexOf(r[0]) < 0) sheet_('MomProfile').appendRow(r); });
+  if (table_('Games').length === 0) SAMPLE_GAMES.forEach(r => sheet_('Games').appendRow(r));
+  if (table_('Rituals').length === 0) SAMPLE_RITUALS.forEach((r, i) => appendObj_('Rituals', { RitualId: 'R' + (i + 1), EventId: '', Order: i + 1, Icon: r[0], NameEn: r[1], NameNe: r[2], MeaningEn: r[3], MeaningNe: r[4], Status: 'upcoming', Visible: 'TRUE' }));
+  if (table_('Traditions').length === 0) SAMPLE_TRADITIONS.forEach((r, i) => sheet_('Traditions').appendRow(['T' + (i + 1)].concat(r)));
+  if (table_('Scenarios').length === 0) SAMPLE_SCENARIOS.forEach((r, i) => sheet_('Scenarios').appendRow(['S' + (i + 1)].concat(r)));
+  if (table_('Events').length === 0) DEFAULT_EVENTS.forEach(e => appendObj_('Events', e));
+
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('ADMIN_PASSCODE')) props.setProperty('ADMIN_PASSCODE', 'change-me-now');
+  if (!props.getProperty('ROOT_FOLDER_ID')) {
+    const root = DriveApp.createFolder('Wedding');
+    ['Invites', 'Mom'].forEach(n => root.createFolder(n));
+    props.setProperty('ROOT_FOLDER_ID', root.getId());
+  }
+  uploadsFolder_();
+  organizeDrive_();
+  if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'nightlyBackup')) {
+    ScriptApp.newTrigger('nightlyBackup').timeBased().everyDays(1).atHour(3).create();
+  }
+  if (props.getProperty('GITHUB_TOKEN') && !ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'publishLiveTick')) {
+    ScriptApp.newTrigger('publishLiveTick').timeBased().everyMinutes(5).create();
+  }
+  if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'healthCheck')) {
+    ScriptApp.newTrigger('healthCheck').timeBased().everyHours(1).create();
+  }
+  const def = ss.getSheetByName('Sheet1');
+  if (def && ss.getSheets().length > 1) ss.deleteSheet(def);
+  formatSheets();
+  CacheService.getScriptCache().removeAll(['config', 'settings']);
+}
+
+// ---------- Drive layout: all core data lives inside My Drive/Wedding ----------
+// Wedding/ Data (this spreadsheet) · Uploads/<event> · Gift QR · Logs · Invites · Proofs · Mom · Backups/<yyyy-MM-dd>
+function rootFolder_() { return DriveApp.getFolderById(PropertiesService.getScriptProperties().getProperty('ROOT_FOLDER_ID')); }
+function subFolder_(name) {
+  const root = rootFolder_(), it = root.getFoldersByName(name);
+  return it.hasNext() ? it.next() : root.createFolder(name);
+}
+function organizeDrive_() {
+  ['Data', 'Uploads', 'Gift QR', 'Envelopes', 'Logs', 'Invites', 'Proofs', 'Mom', 'Backups', 'Guests'].forEach(subFolder_);
+  try { DriveApp.getFileById(SpreadsheetApp.getActive().getId()).moveTo(subFolder_('Data')); } catch (e) { }
+  try {
+    const inv = subFolder_('Invites'); if (!inv.getFoldersByName('General').hasNext()) inv.createFolder('General');
+    eventFolder_('');
+    table_('Events').forEach(e => eventFolder_(e.EventId));
+  } catch (e) { }
+}
+
+/** Wraps long text, auto-fits columns (capped so wrapped columns stay readable) and bolds/freezes headers on every tab. */
+function formatSheets() {
+  const MAX = 320, MIN = 70;
+  SpreadsheetApp.getActive().getSheets().forEach(sh => {
+    const cols = sh.getLastColumn(); if (!cols) return;
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, cols).setFontWeight('bold').setBackground('#f3e8d6');
+    sh.getRange(1, 1, sh.getMaxRows(), cols).setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP).setVerticalAlignment('top');
+    sh.autoResizeColumns(1, cols);
+    for (let c = 1; c <= cols; c++) {
+      const w = sh.getColumnWidth(c);
+      if (w > MAX) sh.setColumnWidth(c, MAX); else if (w < MIN) sh.setColumnWidth(c, MIN);
+    }
+  });
+}
+
+/** Daily copy of the whole database into Wedding/Backups (keeps last 30). */
+function nightlyBackup() {
+  try { formatSheets(); } catch (e) { }
+  const b = subFolder_('Backups');
+  const name = 'Wedding data ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (!b.getFilesByName(name).hasNext()) DriveApp.getFileById(SpreadsheetApp.getActive().getId()).makeCopy(name, b);
+  const files = []; const it = b.getFiles(); while (it.hasNext()) files.push(it.next());
+  files.sort((x, y) => y.getDateCreated() - x.getDateCreated()).slice(30).forEach(f => f.setTrashed(true));
+}
+
+// ---------- Identity & relationship ----------
+
+// sideOf_, groupsFor_, matches_, ageFrom_ live in Pure.gs.
+
+function membersOf_(guestId) {
+  return table_('Members').filter(m => m.GuestId === guestId);
+}
+
+/** Resolves the person using the app: guest + member (falls back to primary member). */
+function identity_(d, required) {
+  const g = d.guestId ? tryGuest_(d.guestId) : null;
+  if (!g) {
+    if (required) throw new Error('Invalid guest link');
+    return { guest: null, member: null };
+  }
+  const members = membersOf_(g.GuestId);
+  let m = d.memberId ? members.filter(x => x.MemberId === d.memberId)[0] : null;
+  if (!m) m = members.filter(x => bool_(x.IsPrimary))[0] || null;
+  return { guest: g, member: m };
+}
+
+function personName_(id, d) {
+  if (id.member) return id.member.Name;
+  if (id.guest) return id.guest.Name;
+  return str_(d && d.name).slice(0, 80) || 'Guest';
+}
+
+function personSide_(id, d) {
+  if (id.member && id.member.RelationTo) return sideOf_(id.member.RelationTo);
+  if (id.guest) return id.guest.Side || sideOf_(id.guest.RelationTo);
+  return sideOf_(d && d.relationTo);
+}
+
+// ---------- Public actions ----------
+
+function getConfig_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('config');
+  if (hit) { const c = JSON.parse(hit); c.closed = isClosed_(); c.freeze = freezeState_(c, new Date()); return c; }
+  const s = settings_();
+  const pub = {};
+  Object.keys(s).forEach(k => {
+    if (/^(feature|lang|couple|wedding|theme|registration|accommodation|drink|app|media|engage|points|freeze|invite)\./.test(k)) pub[k] = s[k];
+  });
+  pub.closed = isClosed_();
+  pub.freeze = freezeState_(s, new Date());
+  pub.live = !pub.closed && s['feature.live'] === 'TRUE' ? activeLive_() : null;
+  pub.relationTo = RELATION_TO;
+  pub.relationTypes = RELATION_TYPES;
+  pub['auth.googleClientId'] = s['auth.googleClientId'] || '';
+  pub['auth.phone'] = s['auth.phone'];
+  pub['auth.google'] = s['auth.google'];
+  pub['contact.channels'] = s['contact.channels'];
+  pub['contact.requireEmail'] = s['contact.requireEmail'];
+  pub.venues = s['feature.venues'] === 'TRUE' ? publicVenues_() : [];
+  pub.eventDates = table_('Events').filter(e => e.DateTime && String(e.Visible).toUpperCase() !== 'FALSE').map(e => String(e.DateTime).slice(0, 10));
+  try { cache.put('config', JSON.stringify(pub), 60); } catch (e) { /* too big */ }
+  return pub;
+}
+
+function getHome_(d) {
+  const s = settings_();
+  const id = identity_(d, false);
+  const events = id.guest ? visibleEvents_(id.guest, id.member) : [];
+  const now = new Date();
+  const next = events.filter(e => !e.locked && e.DateTime && new Date(e.DateTime) > now)
+    .sort((a, b) => new Date(a.DateTime) - new Date(b.DateTime))[0] || null;
+  const approved = s['feature.media'] === 'TRUE' ? approvedMedia_() : [];
+  const en = String(s['engage.promptsEn'] || '').split('|').filter(String);
+  const ne = String(s['engage.promptsNe'] || '').split('|');
+  const day = Math.floor(now.getTime() / 86400000);
+  const lb = leaderboard_();
+  let myPoints = 0;
+  if (id.guest) {
+    const key = id.guest.GuestId + '|' + (id.member ? id.member.MemberId : '');
+    const me = lb.all.filter(x => x.key === key)[0];
+    myPoints = me ? me.points : 0;
+  }
+  const pub = publicLeaderboard_(lb);
+  return {
+    nextEvent: next,
+    approved: id.guest ? approved_(id.guest) : true,
+    upcomingCount: events.filter(e => !e.locked).length,
+    lockedCount: events.filter(e => e.locked).length,
+    media: approved.slice(0, 9).map(publicMedia_),
+    mediaCount: approved.length,
+    diyaCount: s['feature.memorial'] === 'TRUE' ? table_('MomDiyas').length : 0,
+    teams: pub.teams,
+    top: pub.top.slice(0, 5),
+    myPoints: myPoints,
+    prompt: en.length ? { en: en[day % en.length], ne: ne[day % en.length] || '' } : null,
+    live: s['feature.live'] === 'TRUE' ? activeLive_() : null
+  };
+}
+
+function getGuest_(d) {
+  const id = identity_(d, true);
+  const g = id.guest;
+  const s = settings_();
+  const accommodationOn = s['feature.accommodation'] === 'TRUE' && s['accommodation.open'] === 'TRUE' && bool_(g.AccommodationEligible);
+  const rsvps = table_('EventRsvp').filter(r => r.GuestId === g.GuestId);
+  const request = table_('Accommodation').filter(r => r.GuestId === g.GuestId)[0] || null;
+  return {
+    guest: publicGuest_(g),
+    members: membersOf_(g.GuestId).map(publicMember_),
+    memberId: id.member ? id.member.MemberId : '',
+    groups: groupsFor_(g, id.member),
+    events: visibleEvents_(g, id.member),
+    approved: approved_(g),
+    rsvps: rsvps,
+    accommodation: accommodationOn ? { eligible: true, request: request } : { eligible: false }
+  };
+}
+
+function register_(d) {
+  const s = settings_();
+  if (s['feature.registration'] !== 'TRUE' || s['registration.open'] !== 'TRUE') throw new Error('Registration closed');
+  const g = findGuest_(d.guestId);
+  const f = d.form || {};
+  // A relative signed in on their own phone (non-primary member) may only change their own row,
+  // never the household's Guests row, other members, or the shared EventRsvp counts.
+  const self = d.memberId ? membersOf_(g.GuestId).filter(m => m.MemberId === str_(d.memberId))[0] : null;
+  if (self && !bool_(self.IsPrimary)) {
+    if (!str_(f.Name)) throw new Error('Missing Name');
+    updateBy_('Members', 'MemberId', self.MemberId, {
+      Name: str_(f.Name).slice(0, 80), NameNe: str_(f.NameNe).slice(0, 80), DOB: str_(f.DOB),
+      NonDrinker: bool_(f.NonDrinker) ? 'TRUE' : 'FALSE', Attending: f.Status === 'Attending' || f.Status === 'Maybe' ? 'TRUE' : 'FALSE',
+      Meal: str_(f.Meal), Allergies: str_(f.Allergies)
+    });
+    markChanged_(g.GuestId, self.Name + ' updated their details');
+    return { ok: true, memberOnly: true, members: membersOf_(g.GuestId), primaryMemberId: self.MemberId };
+  }
+  ['Name', 'Phone', 'DOB', 'RelationTo', 'RelationType', 'Relation'].forEach(k => { if (!f[k]) throw new Error('Missing ' + k); });
+  if (s['contact.requireEmail'] === 'TRUE' && !f.Email) throw new Error('Missing Email');
+  if (RELATION_TO.indexOf(f.RelationTo) < 0) throw new Error('Invalid relation');
+  const admit = Number(g.AdmitCount) || 1;
+  const now = now_();
+  const attending = f.Status === 'Attending' || f.Status === 'Maybe';
+
+  const incoming = (d.members || []).filter(m => str_(m.Name)).slice(0, 20);
+  incoming.forEach(m => {
+    if (RELATION_TO.indexOf(m.RelationTo) < 0) throw new Error('Please choose relation for ' + m.Name);
+  });
+  const seen = [normName_(f.Name)];
+  incoming.forEach(m => {
+    const n = normName_(m.Name);
+    if (seen.indexOf(n) >= 0) throw new Error('Duplicate name: ' + m.Name);
+    seen.push(n);
+  });
+  const mine = membersOf_(g.GuestId).map(x => x.MemberId);
+  [f.Name].concat(incoming.map(m => m.Name)).forEach(n => {
+    const dup = nameOwner_(n, g.GuestId, mine);
+    if (dup) throw new Error('Already registered: ' + n + ' - please select from the list instead');
+  });
+  const isGoing = m => m.Attending !== false && m.Attending !== 'FALSE';
+  const attendingCount = attending ? 1 + incoming.filter(isGoing).length : 0;
+  if (attendingCount > admit) throw new Error('Maximum ' + admit + ' people for this invitation');
+
+  updateBy_('Guests', 'GuestId', g.GuestId, {
+    Name: str_(f.Name), NameNe: str_(f.NameNe), Phone: str_(f.Phone), Email: str_(f.Email),
+    DOB: str_(f.DOB), Age: ageFrom_(f.DOB), NonDrinker: bool_(f.NonDrinker) ? 'TRUE' : 'FALSE',
+    RelationTo: str_(f.RelationTo), RelationType: str_(f.RelationType), Side: sideOf_(f.RelationTo),
+    Relation: str_(f.Relation), RelationNe: str_(f.RelationNe),
+    AttendingCount: attendingCount, Status: str_(f.Status) || 'Pending', Meal: str_(f.Meal), Allergies: str_(f.Allergies),
+    Arrival: str_(f.Arrival), Departure: str_(f.Departure),
+    ContactPref: str_(f.ContactPref) || (f.Email ? 'email' : 'whatsapp'), VenueId: str_(f.VenueId) || g.VenueId || '',
+    Registered: 'TRUE', RegisteredAt: g.RegisteredAt || now
+  });
+
+  const existing = membersOf_(g.GuestId);
+  let primary = existing.filter(m => bool_(m.IsPrimary))[0];
+  const primaryRow = {
+    GuestId: g.GuestId, Name: str_(f.Name), NameNe: str_(f.NameNe), RelationTo: str_(f.RelationTo),
+    RelationType: str_(f.RelationType), Relation: str_(f.Relation), RelationNe: str_(f.RelationNe), DOB: str_(f.DOB),
+    NonDrinker: bool_(f.NonDrinker) ? 'TRUE' : 'FALSE', Attending: attending ? 'TRUE' : 'FALSE', IsPrimary: 'TRUE'
+  };
+  if (primary) updateBy_('Members', 'MemberId', primary.MemberId, primaryRow);
+  else { primary = Object.assign({ MemberId: id_(), CreatedAt: now }, primaryRow); appendObj_('Members', primary); }
+
+  const keep = [primary.MemberId];
+  incoming.forEach(m => {
+    const own = m.MemberId && existing.some(x => x.MemberId === m.MemberId && !bool_(x.IsPrimary));
+    const row = {
+      GuestId: g.GuestId, Name: str_(m.Name).slice(0, 80), NameNe: str_(m.NameNe).slice(0, 80),
+      RelationTo: str_(m.RelationTo), RelationType: str_(m.RelationType), Relation: str_(m.Relation).slice(0, 60),
+      RelationNe: str_(m.RelationNe).slice(0, 60), DOB: str_(m.DOB), NonDrinker: bool_(m.NonDrinker) ? 'TRUE' : 'FALSE',
+      Attending: attending && isGoing(m) ? 'TRUE' : 'FALSE', IsPrimary: 'FALSE'
+    };
+    if (own) { updateBy_('Members', 'MemberId', m.MemberId, row); keep.push(m.MemberId); }
+    else { const nid = id_(); appendObj_('Members', Object.assign({ MemberId: nid, CreatedAt: now }, row)); keep.push(nid); }
+  });
+  existing.filter(x => keep.indexOf(x.MemberId) < 0).forEach(x => {
+    if (softDelete_()) updateBy_('Members', 'MemberId', x.MemberId, { GuestId: 'removed:' + g.GuestId, Attending: 'FALSE' });
+    else deleteBy_('Members', 'MemberId', x.MemberId);
+  });
+
+  const fresh = tryGuest_(g.GuestId);
+  const allowed = visibleEvents_(fresh, null).filter(e => !e.locked).map(e => e.EventId);
+  (d.events || []).forEach(ev => {
+    if (allowed.indexOf(ev.EventId) < 0) return;
+    upsertComposite_('EventRsvp', ['GuestId', 'EventId'], g.GuestId + '|' + ev.EventId, {
+      GuestId: g.GuestId, EventId: ev.EventId, Response: str_(ev.Response),
+      Count: Math.max(0, Math.min(attendingCount, Number(ev.Count) || 0)), UpdatedAt: now
+    });
+  });
+
+  if (f.Email) {
+    try {
+      MailApp.sendEmail(f.Email, 'Registration confirmed / दर्ता पुष्टि भयो',
+        'Namaste ' + f.Name + ',\n\nThank you for registering. Your family guest passes are ready in the wedding app.\n\nधन्यवाद');
+    } catch (e) { /* quota or invalid address */ }
+  }
+  log_('register', '', { guestId: g.GuestId, name: g.Name, by: g.Name, role: 'guest', summary: 'self-registration' });
+  markChanged_(g.GuestId, bool_(g.Registered) ? 'Updated registration / RSVP' : 'New registration');
+  return { members: membersOf_(g.GuestId).map(publicMember_), primaryMemberId: primary.MemberId };
+}
+
+function requestAccommodation_(d) {
+  const s = settings_();
+  const g = findGuest_(d.guestId);
+  if (s['feature.accommodation'] !== 'TRUE' || s['accommodation.open'] !== 'TRUE' || !bool_(g.AccommodationEligible)) {
+    throw new Error('Accommodation not available');
+  }
+  const existing = table_('Accommodation').filter(r => r.GuestId === g.GuestId)[0];
+  const row = {
+    RequestId: existing ? existing.RequestId : id_(), GuestId: g.GuestId,
+    Nights: Number(d.Nights) || 1, People: Math.min(Number(g.AdmitCount) || 1, Number(d.People) || 1),
+    Needs: str_(d.Needs), Status: existing && existing.Status === 'Assigned' ? 'Assigned' : 'Requested',
+    RoomId: existing ? existing.RoomId : '', UpdatedAt: now_()
+  };
+  upsert_('Accommodation', 'RequestId', row.RequestId, row);
+  markChanged_(g.GuestId, 'Accommodation request');
+  return row;
+}
+
+function getPass_(d) {
+  const g = withDerived_(findGuest_(d.guestId));
+  const req = table_('Accommodation').filter(r => r.GuestId === g.GuestId)[0];
+  const room = req && req.RoomId ? table_('Rooms').filter(r => r.RoomId === req.RoomId)[0] : null;
+  const showBand = settings_()['feature.drinkBand'] === 'TRUE';
+  return {
+    guestId: g.GuestId, name: g.Name, nameNe: g.NameNe, side: g.Side, relation: g.Relation, relationNe: g.RelationNe,
+    table: g.Table, status: g.Status, registered: bool_(g.Registered), attendingCount: g.AttendingCount,
+    band: showBand ? g.Band : null,
+    members: membersOf_(g.GuestId).map(m => {
+      const x = withDerivedMember_(m);
+      return {
+        memberId: x.MemberId, name: x.Name, nameNe: x.NameNe, relationTo: x.RelationTo, relation: x.Relation,
+        relationNe: x.RelationNe, side: sideOf_(x.RelationTo), attending: bool_(x.Attending),
+        isPrimary: bool_(x.IsPrimary), band: showBand ? x.Band : null
+      };
+    }),
+    room: room ? { name: room.Name, location: room.Location, checkIn: room.CheckIn, checkOut: room.CheckOut } : null,
+    accommodationStatus: req ? req.Status : null
+  };
+}
+
+function getLive_() { return activeLive_(); }
+
+// ---------- Media (photos & videos to Google Drive) ----------
+
+/**
+ * Creates a Google Drive resumable upload session owned by the script owner.
+ * The browser PUTs the file bytes straight to Drive (no Apps Script size limit),
+ * then calls finishUpload with the returned Drive file id.
+ */
+function startUpload_(d) {
+  const s = settings_();
+  if (s['feature.media'] !== 'TRUE') throw new Error('Sharing is off');
+  assertNotFrozen_(s);
+  const id = identity_(d, false);
+  if (!id.guest && !(s['media.allowVisitors'] === 'TRUE' && str_(d.name))) throw new Error('Please tell us your name');
+  const mime = str_(d.mimeType).toLowerCase();
+  if (!/^(image|video)\//.test(mime)) throw new Error('Only photos and videos');
+  const size = Number(d.size) || 0;
+  const isVideo = /^video\//.test(mime);
+  const limitMB = isVideo ? (Number(s['media.maxVideoMB']) || 250) : (Number(s['media.maxSizeMB']) || 500);
+  if (!size || size > limitMB * 1024 * 1024) throw new Error('File too large (max ' + limitMB + ' MB for ' + (isVideo ? 'videos' : 'photos') + ')');
+
+  const name = personName_(id, d);
+  const taken = d.takenAt && !isNaN(new Date(d.takenAt)) ? new Date(d.takenAt) : new Date();
+  const allEvents = table_('Events');
+  if (!d.eventId || !allEvents.some(e => e.EventId === d.eventId)) d.eventId = eventForTime_(allEvents.filter(e => bool_(e.Visible)), taken.toISOString());
+  const ev = d.eventId ? allEvents.filter(e => e.EventId === d.eventId)[0] : null;
+  const fileName = (s['media.chronoNames'] === 'FALSE'
+    ? Utilities.formatDate(new Date(), 'UTC', 'yyyyMMdd-HHmmss') + '_' + name + '_' + str_(d.fileName)
+    : [ev ? str_(ev.NameEn || ev.EventId) : 'General', Utilities.formatDate(taken, Session.getScriptTimeZone(), 'yyyy-MM-dd_HH-mm-ss'),
+      String(name).split(' ')[0], str_(d.fileName)].join('_'))
+    .replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 150);
+  const headers = {
+    Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+    'X-Upload-Content-Type': mime,
+    'X-Upload-Content-Length': String(size)
+  };
+  if (d.origin) headers.Origin = str_(d.origin);
+  const res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+    method: 'post',
+    contentType: 'application/json; charset=UTF-8',
+    headers: headers,
+    payload: JSON.stringify({ name: fileName, mimeType: mime, parents: [eventFolder_(str_(d.eventId)).getId()] }),
+    muteHttpExceptions: true
+  });
+  const h = res.getAllHeaders();
+  const url = h.Location || h.location;
+  if (res.getResponseCode() >= 300 || !url) throw new Error('Upload could not start');
+
+  const token = Utilities.getUuid();
+  CacheService.getScriptCache().put('up_' + token, JSON.stringify({
+    guestId: id.guest ? id.guest.GuestId : '', memberId: id.member ? id.member.MemberId : '',
+    name: name, side: personSide_(id, d), eventId: str_(d.eventId).slice(0, 40), mime: mime, fileName: str_(d.fileName).slice(0, 120),
+    takenAt: str_(d.takenAt).slice(0, 30), device: str_(d.device).slice(0, 80), size: size, purpose: ['gift', 'whisper'].indexOf(str_(d.purpose)) >= 0 ? str_(d.purpose) : '',
+    anon: bool_(d.anon) || str_(d.purpose) === 'whisper',
+    audioFlag: str_(d.audioFlag) === 'distorted' ? 'distorted' : str_(d.audioFlag) === 'ok' ? 'ok' : '', clipPct: Math.max(0, Math.min(100, Number(d.clipPct) || 0)),
+    category: str_(d.category).slice(0, 40)
+  }), 21600);
+  return { uploadUrl: url, token: token };
+}
+
+function finishUpload_(d) {
+  const raw = CacheService.getScriptCache().get('up_' + str_(d.token));
+  if (!raw) throw new Error('Upload expired');
+  const p = JSON.parse(raw);
+  const file = DriveApp.getFileById(str_(d.fileId));
+  const folderId = uploadsFolder_().getId();
+  let inFolder = false;
+  const parents = file.getParents();
+  while (parents.hasNext()) {
+    const pf = parents.next();
+    if (pf.getId() === folderId) inFolder = true;
+    const gp = pf.getParents();
+    while (gp.hasNext()) if (gp.next().getId() === folderId) inFolder = true;
+  }
+  if (!inFolder) throw new Error('Invalid file');
+  if (table_('Media').some(m => m.DriveFileId === file.getId())) throw new Error('Already saved');
+  // View-only link: everyone can see & download; nobody else can edit or delete.
+  if (!p.purpose) file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  if (p.anon) { try { file.setName('anon_' + Utilities.formatDate(new Date(), 'UTC', 'yyyyMMdd-HHmmss') + '_' + id_() + (p.fileName.match(/\.[^.]+$/) || [''])[0]); } catch (e) { } }
+  const moderated = settings_()['media.moderation'] === 'TRUE';
+  const row = {
+    MediaId: id_(), GuestId: p.guestId, MemberId: p.memberId, Name: p.name, Side: p.side, EventId: p.eventId,
+    DriveFileId: file.getId(), Type: /^video/.test(p.mime) ? 'video' : 'photo', MimeType: p.mime, FileName: p.fileName,
+    Timestamp: now_(), TakenAt: p.takenAt || '', Device: p.device || '', SizeBytes: p.size || '', Anon: p.anon ? 'TRUE' : '',
+        AudioFlag: p.audioFlag || '', ClipPct: p.clipPct || '', Category: p.category || '',
+        Thumb: /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(str_(d.thumb)) && str_(d.thumb).length < 45000 ? str_(d.thumb) : ''
+      };
+      if (p.audioFlag === 'distorted') { try { file.setDescription('Audio distorted (' + p.clipPct + '% clipped) - use as muted B-roll'); } catch (e) { } }
+  appendObj_('Media', row);
+  CacheService.getScriptCache().remove('up_' + str_(d.token));
+  try {
+    const mine = table_('Media').filter(m => (p.guestId ? m.GuestId === p.guestId : m.Name === p.name) && m.Status !== 'Deleted').length;
+    const folder = 'Wedding/Uploads/' + (p.eventId ? eventFolder_(p.eventId).getName() : 'General');
+    log_('upload:' + row.Type, folder, { guestId: p.guestId, name: p.name, by: p.anon ? 'anonymous' : p.name, role: p.guestId ? 'guest' : 'visitor',
+      summary: row.Type + ' "' + p.fileName + '" · ' + (Math.round((Number(p.size) || 0) / 104857.6) / 10) + ' MB · event ' + (p.eventId || 'General') +
+        ' · folder ' + folder + ' · file #' + mine + ' from this person' + (p.device ? ' · ' + p.device : '') + (moderated ? ' · waiting for approval' : '') });
+  } catch (e) { }
+  return { pending: moderated, media: publicMedia_(row) };
+}
+
+function getGallery_(d) {
+  if (settings_()['feature.media'] !== 'TRUE') throw new Error('Sharing is off');
+  let list = approvedMedia_();
+  if (d.eventId) list = list.filter(m => m.EventId === d.eventId);
+  if (d.side) list = list.filter(m => m.Side === d.side);
+  if (d.mine && d.guestId) list = list.filter(m => m.GuestId === d.guestId);
+  return list.slice(0, Math.min(Number(d.limit) || 300, 500)).map(m => {
+    const x = publicMedia_(m);
+    x.mine = !!d.guestId && m.GuestId === d.guestId;
+    return x;
+  });
+}
+
+function deleteMedia_(d) {
+  const g = findGuest_(d.guestId);
+  const m = table_('Media').filter(x => x.MediaId === d.mediaId)[0];
+  if (!m || m.GuestId !== g.GuestId) throw new Error('You can only remove your own uploads');
+  // Guest always sees "deleted". With data.softDelete ON (admin only) the file and row are kept.
+  updateBy_('Media', 'MediaId', m.MediaId, { Status: 'Deleted' });
+  log_('deleteMedia', '', { guestId: g.GuestId, name: g.Name, by: m.Name || g.Name, role: 'guest', summary: m.Type + ' "' + m.FileName + '" uploaded ' + m.Timestamp + (softDelete_() ? ' · hidden, file kept in Drive' : ' · file trashed') });
+  if (!softDelete_()) { try { DriveApp.getFileById(m.DriveFileId).setTrashed(true); } catch (e) { /* already gone */ } }
+  return true;
+}
+
+function approvedMedia_() {
+  return table_('Media').filter(m => m.Status === 'Approved').reverse();
+}
+
+function publicMedia_(m) {
+  const anon = bool_(m.Anon);
+  return { id: m.MediaId, fileId: m.DriveFileId, type: m.Type, name: anon ? '' : m.Name, anon: anon, side: anon ? '' : m.Side, eventId: m.EventId, at: m.Timestamp };
+}
+
+// ---------- "Anonymous" messages: guests see anonymity, admin sees who sent it (everything is stored) ----------
+
+function sendWhisper_(d, client) {
+  const id = identity_(d, false);
+  const text = str_(d.text).slice(0, 3000);
+  if (!text && !d.mediaId) throw new Error('Write a message');
+  const m = d.mediaId ? table_('Media').filter(x => x.MediaId === d.mediaId)[0] : null;
+  const c = client || {};
+  appendObj_('Whispers', {
+    WhisperId: id_(), GuestId: id.guest ? id.guest.GuestId : '', MemberId: id.member ? id.member.MemberId : '',
+    Name: id.guest ? personName_(id) : str_(d.name || d.visitorName).slice(0, 80), Side: id.guest ? personSide_(id) : '',
+    Text: text, MediaId: m ? m.MediaId : '', DriveFileId: m ? m.DriveFileId : '', Timestamp: now_(),
+    Device: str_(c.ua).slice(0, 160), Session: str_(c.sid).slice(0, 40), Status: 'New'
+  });
+  return { ok: true };
+}
+
+// Admin cash-envelope ledger (fast entry during/after events).
+function adminAuditGift_(d) {
+  const status = { verified: 'Verified', flagged: 'Flagged', pending: '' }[str_(d.status).toLowerCase()];
+  if (status === undefined) throw new Error('Status must be verified, flagged or pending');
+  if (status === 'Flagged' && !str_(d.note)) throw new Error('Add a short note for the discrepancy');
+  return updateBy_('Gifts', 'GiftId', d.giftId, {
+    AuditStatus: status, AuditedAt: status ? now_() : '', AuditedBy: status ? str_(d.by) || 'admin' : '',
+    AuditNote: str_(d.note).slice(0, 300)
+  });
+}
+
+function assertNotFrozen_(s) {
+  if (freezeState_(s, new Date()).on) throw new Error('Phones down for now - games and uploads reopen soon');
+}
+
+function adminFreeze_(d) {
+  if (d.windows !== undefined) {
+    const err = freezeWindowsValid_(d.windows);
+    if (err) throw new Error(err);
+    upsert_('Settings', 'Key', 'freeze.windows', { Key: 'freeze.windows', Value: str_(d.windows).slice(0, 1000) });
+    if (d.on === undefined) {
+      try { CacheService.getScriptCache().removeAll(['config', 'settings']); } catch (e) { }
+      delete MEMO_.Settings;
+      publishLive_(true);
+      return freezeState_(settings_(), new Date());
+    }
+  }
+  const on = bool_(d.on);
+  upsert_('Settings', 'Key', 'freeze.on', { Key: 'freeze.on', Value: on ? 'TRUE' : 'FALSE' });
+  upsert_('Settings', 'Key', 'freeze.until', { Key: 'freeze.until', Value: on ? str_(d.until) : '' });
+  if (d.messageEn !== undefined) upsert_('Settings', 'Key', 'freeze.messageEn', { Key: 'freeze.messageEn', Value: str_(d.messageEn).slice(0, 200) });
+  if (d.messageNe !== undefined) upsert_('Settings', 'Key', 'freeze.messageNe', { Key: 'freeze.messageNe', Value: str_(d.messageNe).slice(0, 200) });
+  try { CacheService.getScriptCache().removeAll(['config', 'settings']); } catch (e) { }
+  delete MEMO_.Settings;
+  publishLive_(true);
+  return freezeState_(settings_(), new Date());
+}
+
+function adminSaveCashGift_(d) {
+  const g = d.guestId ? tryGuest_(d.guestId) : null;
+  const row = {
+    GuestId: g ? g.GuestId : '', MemberId: str_(d.memberId), Name: str_(d.name).slice(0, 80) || (g ? g.Name : ''),
+    Side: g ? g.Side : str_(d.side), Relation: str_(d.relation).slice(0, 60), Method: str_(d.method) || 'Cash envelope',
+    Amount: Number(d.amount) || '', Currency: str_(d.currency) || settings_()['gift.currency'] || 'NPR', Note: str_(d.note).slice(0, 1000),
+    Source: 'cash', EnteredBy: str_(d.enteredBy) || 'admin', PhotoId: str_(d.photoId).slice(0, 80)
+  };
+  if (!row.Name) throw new Error('Giver name required');
+  if (row.Amount && !str_(d.currency)) throw new Error('Choose NPR or USD');
+  if (d.giftId) return updateBy_('Gifts', 'GiftId', d.giftId, row);
+  row.GiftId = id_(); row.Status = 'Received'; row.Timestamp = now_(); row.ThankedAt = '';
+  appendObj_('Gifts', row);
+  return row;
+}
+
+/** Originals are sorted into Drive sub-folders per event (e.g. Uploads/Mehendi) - easy to pick clips for the wedding video. */
+function eventFolder_(eventId) {
+  const up = uploadsFolder_();
+  const ev = eventId ? table_('Events').filter(e => e.EventId === eventId)[0] : null;
+  const name = ev ? str_(ev.NameEn || ev.EventId).replace(/[\\/:*?"<>|]/g, '_') : 'General';
+  const key = 'EVF_' + name;
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty(key);
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recreate */ } }
+  const it = up.getFoldersByName(name);
+  const f = it.hasNext() ? it.next() : up.createFolder(name);
+  props.setProperty(key, f.getId());
+  return f;
+}
+
+/** Full-quality export list (incl. soft-deleted) ordered by event then capture time - for the wedding video. */
+function adminMediaExport_() {
+  const evs = {};
+  table_('Events').forEach(e => evs[e.EventId] = e);
+  return table_('Media').map(m => ({
+    event: evs[m.EventId] ? evs[m.EventId].NameEn : 'General', order: evs[m.EventId] ? String(evs[m.EventId].DateTime) : '9999',
+    takenAt: m.TakenAt || m.Timestamp, uploadedAt: m.Timestamp, name: m.Name, side: m.Side, type: m.Type, mime: m.MimeType,
+    fileName: m.FileName, device: m.Device, sizeMB: m.SizeBytes ? Math.round(m.SizeBytes / 1048576 * 10) / 10 : '', status: m.Status,
+    download: 'https://drive.google.com/uc?export=download&id=' + m.DriveFileId, view: 'https://drive.google.com/file/d/' + m.DriveFileId + '/view'
+  })).sort((a, b) => (a.order + a.takenAt).localeCompare(b.order + b.takenAt));
+}
+
+function uploadsFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('UPLOADS_FOLDER_ID');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recreate */ } }
+  const root = DriveApp.getFolderById(props.getProperty('ROOT_FOLDER_ID'));
+  const it = root.getFoldersByName('Uploads');
+  const folder = it.hasNext() ? it.next() : root.createFolder('Uploads');
+  props.setProperty('UPLOADS_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+// ---------- Games (targeted by relationship) ----------
+
+function getGames_(d) {
+  if (settings_()['feature.games'] !== 'TRUE') throw new Error('Games are off');
+  const id = identity_(d, true);
+  const groups = groupsFor_(id.guest, id.member);
+  const memberId = id.member ? id.member.MemberId : '';
+  const answered = {};
+  table_('Scores').filter(s => s.GuestId === id.guest.GuestId && s.MemberId === memberId).forEach(s => answered[s.GameId] = s);
+  const proofs = {};
+  table_('Proofs').filter(p => p.GuestId === id.guest.GuestId && p.MemberId === memberId && p.Status !== 'Rejected').forEach(p => proofs[p.GameId] = p.Status);
+  const games = table_('Games')
+    .filter(g => bool_(g.Active) && matches_(g.Groups, groups))
+    .sort((a, b) => (Number(a.Order) || 0) - (Number(b.Order) || 0))
+    .map(g => {
+      const a = answered[g.GameId];
+      return {
+        gameId: g.GameId, type: g.Type, titleEn: g.TitleEn, titleNe: g.TitleNe, questionEn: g.QuestionEn, questionNe: g.QuestionNe,
+        optionsEn: String(g.OptionsEn || '').split('|'), optionsNe: String(g.OptionsNe || '').split('|'),
+        points: Number(g.Points) || 0, answered: !!a || !!proofs[g.GameId], proof: proofs[g.GameId] || null, correct: a ? bool_(a.Correct) : null, answer: a ? Number(g.Answer) : null
+      };
+    });
+  return { games: games, groups: groups, leaderboard: publicLeaderboard_(leaderboard_()) };
+}
+
+function submitAnswer_(d) {
+  assertNotFrozen_(settings_());
+  const id = identity_(d, true);
+  {
+    const memberId = id.member ? id.member.MemberId : '';
+    const game = table_('Games').filter(g => g.GameId === d.gameId && bool_(g.Active))[0];
+    if (!game || !matches_(game.Groups, groupsFor_(id.guest, id.member))) throw new Error('Game not available');
+    if (table_('Scores').some(s => s.GuestId === id.guest.GuestId && s.MemberId === memberId && s.GameId === game.GameId)) {
+      throw new Error('Already answered');
+    }
+    const correct = String(Number(d.choice)) === String(Number(game.Answer));
+    const points = correct ? Number(game.Points) || 0 : 0;
+    appendObj_('Scores', {
+      GuestId: id.guest.GuestId, MemberId: memberId, Name: personName_(id), Side: personSide_(id),
+      GameId: game.GameId, Correct: correct ? 'TRUE' : 'FALSE', Points: points, Timestamp: now_()
+    });
+    return { correct: correct, answer: Number(game.Answer), points: points };
+  }
+}
+
+/** Points: game points + shared uploads. Teams: Bride side vs Groom side. */
+function leaderboard_() {
+  const perUpload = Number(settings_()['points.upload']) || 0;
+  const people = {};
+  const add = (key, name, side, pts) => {
+    if (!people[key]) people[key] = { key: key, name: name, side: side, points: 0 };
+    people[key].points += pts;
+  };
+  table_('Scores').forEach(s => add(s.GuestId + '|' + s.MemberId, s.Name, s.Side, Number(s.Points) || 0));
+  approvedMedia_().forEach(m => add(m.GuestId ? m.GuestId + '|' + m.MemberId : 'v|' + m.Name, m.Name, m.Side, perUpload));
+  table_('Proofs').filter(p => p.Status === 'Approved').forEach(p => add(p.GuestId + '|' + p.MemberId, p.Name, p.Side, Number(p.Points) || 0));
+  const perCheckIn = Number(settings_()['points.checkIn']) || 0, perOnTime = Number(settings_()['points.onTime']) || 0;
+  if (perCheckIn || perOnTime) {
+    const events = table_('Events').filter(e => bool_(e.Visible));
+    const evAt = {}; events.forEach(e => evAt[e.EventId] = e.DateTime);
+    table_('Members').filter(m => bool_(m.CheckedIn) && String(m.GuestId).indexOf('removed:') !== 0).forEach(m => {
+      const ev = eventForTime_(events, m.CheckedInAt);
+      const pts = perCheckIn + (ev && isOnTime_(m.CheckedInAt, evAt[ev]) ? perOnTime : 0);
+      add(m.GuestId + '|' + m.MemberId, m.Name, sideOf_(m.RelationTo), pts);
+    });
+  }
+  const all = Object.keys(people).map(k => people[k]).sort((a, b) => b.points - a.points);
+  return { teams: teamTotals_(all), all: all };
+}
+
+function publicLeaderboard_(lb) {
+  if (freezeState_(settings_(), new Date()).on) return { teams: { Bride: 0, Groom: 0 }, top: [], frozen: true };
+  return {
+    teams: lb.teams,
+    top: lb.all.slice(0, 10).map(x => ({ name: x.name, side: x.side, points: x.points }))
+  };
+}
+
+// ---------- Memorial ----------
+
+function getMemorial_() {
+  const s = settings_();
+  if (s['feature.memorial'] !== 'TRUE') throw new Error('Memorial disabled');
+  const profile = {};
+  table_('MomProfile').forEach(r => profile[r.Key] = r.Value);
+  const moderated = s['memorial.moderation'] === 'TRUE';
+  const memories = table_('MomMemories')
+    .filter(m => !bool_(m.IsPrivate) && (!moderated || m.Status === 'Approved'))
+    .map(m => ({ name: m.Name, relation: m.Relation, type: m.Type, text: m.Text, timestamp: m.Timestamp }))
+    .reverse();
+  const diyas = table_('MomDiyas');
+  return {
+    profile: profile, memories: memories, diyaCount: diyas.length,
+    blessings: diyas.filter(x => x.Blessing).slice(-30).reverse().map(x => ({ name: x.Name, blessing: x.Blessing }))
+  };
+}
+
+function lightDiya_(d) {
+  const g = d.guestId ? tryGuest_(d.guestId) : null;
+  sheet_('MomDiyas').appendRow([g ? g.GuestId : '', str_(d.name || (g && g.Name) || 'Guest').slice(0, 80),
+    str_(d.blessing).slice(0, 200), now_()]);
+  return { diyaCount: table_('MomDiyas').length };
+}
+
+function submitMemory_(d) {
+  const g = d.guestId ? tryGuest_(d.guestId) : null;
+  const text = str_(d.text).slice(0, 3000);
+  if (!text) throw new Error('Empty memory');
+  const moderated = settings_()['memorial.moderation'] === 'TRUE';
+  sheet_('MomMemories').appendRow([id_(), g ? g.GuestId : '', str_(d.name || (g && g.Name) || 'Guest').slice(0, 80),
+    str_(d.relation).slice(0, 80), 'text', text, '', moderated ? 'Pending' : 'Approved',
+    bool_(d.isPrivate) ? 'TRUE' : 'FALSE', now_()]);
+  return { pending: moderated };
+}
+
+// ---------- Admin actions ----------
+
+function adminStats_() {
+  const guests = table_('Guests').map(withDerived_);
+  const members = table_('Members').map(withDerivedMember_);
+  const events = table_('Events');
+  const rsvps = table_('EventRsvp');
+  const acc = table_('Accommodation');
+  const rooms = table_('Rooms');
+  const sum = (arr, f) => arr.reduce((t, x) => t + (Number(f(x)) || 0), 0);
+
+  const byStatus = s => guests.filter(g => g.Status === s);
+  const attending = byStatus('Attending');
+  const meals = {};
+  attending.forEach(g => { const m = g.Meal || 'Unspecified'; meals[m] = (meals[m] || 0) + (Number(g.AttendingCount) || 0); });
+
+  const gById = {};
+  guests.forEach(g => gById[g.GuestId] = g);
+  const perEvent = events.map(e => {
+    const r = rsvps.filter(x => x.EventId === e.EventId);
+    const yesR = r.filter(x => x.Response === 'Yes');
+    const bySide = {}, byTag = {};
+    yesR.forEach(x => {
+      const g = gById[x.GuestId] || {}, n = Number(x.Count) || 0;
+      const sd = g.Side || 'Unspecified'; bySide[sd] = (bySide[sd] || 0) + n;
+      String(g.Tags || '').split(',').map(t => t.trim()).filter(String).forEach(t => byTag[t] = (byTag[t] || 0) + n);
+    });
+    return {
+      eventId: e.EventId, nameEn: e.NameEn, nameNe: e.NameNe, dateTime: e.DateTime,
+      yes: sum(yesR, x => x.Count), households: yesR.length,
+      maybe: sum(r.filter(x => x.Response === 'Maybe'), x => x.Count),
+      no: r.filter(x => x.Response === 'No').length,
+      noReply: guests.filter(g => invitedTo_(g, e, String(g.Groups || '').toLowerCase().split(',').map(s => s.trim())) && !r.some(x => x.GuestId === g.GuestId)).length,
+      bySide: bySide, byTag: byTag
+    };
+  });
+
+  const going = members.filter(m => bool_(m.Attending));
+  const bands = { green: 0, yellow: 0, red: 0, blue: 0 };
+  going.forEach(m => { if (bands[m.Band] !== undefined) bands[m.Band]++; });
+  const relations = {};
+  going.forEach(m => { const k = m.RelationTo || 'Unspecified'; relations[k] = (relations[k] || 0) + 1; });
+  const media = table_('Media');
+  const players = {};
+  table_('Scores').forEach(s => players[s.GuestId + '|' + s.MemberId] = 1);
+
+  return {
+    updatedAt: now_(),
+    invited: guests.length,
+    invitedPeople: sum(guests, g => g.AdmitCount),
+    registered: guests.filter(g => bool_(g.Registered)).length,
+    attendingGuests: attending.length,
+    attendingPeople: sum(attending, g => g.AttendingCount),
+    notAttending: byStatus('Not attending').length,
+    maybe: byStatus('Maybe').length,
+    pending: guests.filter(g => !bool_(g.Registered)).length,
+    brideSide: going.filter(m => sideOf_(m.RelationTo) === 'Bride').length,
+    groomSide: going.filter(m => sideOf_(m.RelationTo) === 'Groom').length,
+    checkedIn: members.filter(m => bool_(m.CheckedIn)).length +
+      guests.filter(g => bool_(g.CheckedIn) && !members.some(m => m.GuestId === g.GuestId)).length,
+    meals: meals,
+    bands: bands,
+    relations: relations,
+    perEvent: perEvent,
+    media: {
+      photos: media.filter(m => m.Type === 'photo' && m.Status === 'Approved').length,
+      videos: media.filter(m => m.Type === 'video' && m.Status === 'Approved').length,
+      pending: media.filter(m => m.Status === 'Pending').length
+    },
+    players: Object.keys(players).length,
+    accommodation: {
+      eligible: guests.filter(g => bool_(g.AccommodationEligible)).length,
+      requested: acc.filter(a => a.Status === 'Requested').length,
+      assigned: acc.filter(a => a.Status === 'Assigned').length,
+      people: sum(acc, a => a.People),
+      capacity: sum(rooms, r => r.Capacity)
+    }
+  };
+}
+
+function adminPeople_() {
+  const guests = {};
+  table_('Guests').forEach(g => guests[g.GuestId] = g);
+  return table_('Members').map(withDerivedMember_).map(m => Object.assign(m, {
+    Household: guests[m.GuestId] ? guests[m.GuestId].Name : '',
+    Table: guests[m.GuestId] ? guests[m.GuestId].Table : '',
+    Side: sideOf_(m.RelationTo)
+  }));
+}
+
+function adminSaveGuest_(d) {
+  const allowed = SHEETS.Guests.filter(c => c !== 'GuestId');
+  const row = {};
+  allowed.forEach(c => { if (d[c] !== undefined) row[c] = d[c]; });
+  if (row.DOB) row.Age = ageFrom_(row.DOB);
+  if (row.RelationTo) row.Side = sideOf_(row.RelationTo);
+  if (d.GuestId) { updateBy_('Guests', 'GuestId', d.GuestId, row); return d.GuestId; }
+  row.GuestId = id_();
+  if (!row.InviteCode) row.InviteCode = newCode_();
+  if (!row.AdmitCount) row.AdmitCount = 1;
+  if (!row.Status) row.Status = 'Pending';
+  appendObj_('Guests', row);
+  return row.GuestId;
+}
+
+// ---------- Household page / magic invitation codes ----------
+
+function newCode_() {
+  const used = {};
+  table_('Guests').forEach(g => used[String(g.InviteCode).toUpperCase()] = 1);
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let c;
+  do { c = ''; for (let i = 0; i < 6; i++) c += chars.charAt(Math.floor(Math.random() * chars.length)); } while (used[c]);
+  return c;
+}
+
+function adminGenCodes_(d) {
+  let n = 0;
+  table_('Guests').forEach(g => {
+    if (g.InviteCode && !bool_(d && d.regenerate)) return;
+    updateBy_('Guests', 'GuestId', g.GuestId, { InviteCode: newCode_() }); n++;
+  });
+  return n;
+}
+
+function resolveCode_(d) {
+  const c = str_(d.code).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const g = c.length >= 6 ? table_('Guests').filter(x => String(x.InviteCode).toUpperCase() === c || String(x.GuestId).toUpperCase() === c)[0] : null;
+  if (!g) { Utilities.sleep(600); throw new Error('Invitation code not found'); }
+  linkGuard_(g);
+  return { guestId: g.GuestId };
+}
+
+function adminHousehold_(d) {
+  const g = findGuest_(d.guestId);
+  const has = x => x.GuestId === g.GuestId;
+  return {
+    guest: withDerived_(g),
+    members: membersOf_(g.GuestId).map(withDerivedMember_),
+    rsvps: table_('EventRsvp').filter(has),
+    gifts: table_('Gifts').filter(has),
+    uploads: table_('Media').filter(has).length,
+    // Relatives: other households in the same family name
+    family: g.Family ? table_('Guests').filter(x => x.Family === g.Family && x.GuestId !== g.GuestId).map(x => ({ GuestId: x.GuestId, Name: x.Name, Relation: x.Relation })) : []
+  };
+}
+
+// ---------- Functions actually attended (guest ticks after/during events) ----------
+function markAttended_(d) {
+  const g = findGuest_(d.guestId);
+  if (settings_()['feature.attended'] === 'FALSE') throw new Error('Not available');
+  const allowed = visibleEvents_(g, null).map(e => e.EventId);
+  (d.events || []).forEach(ev => {
+    if (allowed.indexOf(ev.EventId) < 0) return;
+    const ex = table_('EventRsvp').filter(r => r.GuestId === g.GuestId && r.EventId === ev.EventId)[0] || {};
+    upsertComposite_('EventRsvp', ['GuestId', 'EventId'], g.GuestId + '|' + ev.EventId, {
+      GuestId: g.GuestId, EventId: ev.EventId, Response: ex.Response || '', Count: ex.Count || '', UpdatedAt: ex.UpdatedAt || now_(),
+      Attended: bool_(ev.attended) ? 'TRUE' : 'FALSE', AttendedCount: Math.max(0, Math.min(50, Number(ev.count) || 0)), AttendedAt: now_()
+    });
+  });
+  return true;
+}
+
+// ---------- Thank-you engine: one row per household combining gifts + presence ----------
+function adminThankQueue_() {
+  const s = settings_();
+  const couple = [s['couple.brideEn'], s['couple.groomEn']].filter(String).join(' & ');
+  const evName = {};
+  table_('Events').forEach(e => evName[e.EventId] = e.NameEn);
+  const guests = {};
+  table_('Guests').forEach(g => guests[g.GuestId] = g);
+  const rs = table_('EventRsvp'), sent = table_('ThankYous');
+  const out = {}, key = (gid, name) => gid || 'n:' + String(name).toLowerCase().trim();
+  table_('Gifts').forEach(x => {
+    const k = key(x.GuestId, x.Name), g = guests[x.GuestId] || {};
+    const o = out[k] = out[k] || { key: k, guestId: x.GuestId, name: x.Name || g.Name, relation: x.Relation || g.Relation || '', phone: x.Phone || g.Phone || '', email: g.Email || '', gifts: [], events: [], giftIds: [] };
+    o.gifts.push(/cash|envelope/i.test(x.Method) ? 'kind envelope' : x.Method ? 'gift via ' + x.Method : 'gift');
+    o.giftIds.push(x.GiftId);
+    if (x.EventId && evName[x.EventId]) o.events.push(evName[x.EventId]);
+    if (x.ThankedAt) o.thankedAt = x.ThankedAt;
+  });
+  rs.filter(r => bool_(r.Attended) || (!r.Attended && r.Response === 'Yes')).forEach(r => {
+    const g = guests[r.GuestId]; if (!g) return;
+    const o = out[r.GuestId] = out[r.GuestId] || { key: r.GuestId, guestId: r.GuestId, name: g.Name, relation: g.Relation || '', phone: g.Phone || '', email: g.Email || '', gifts: [], events: [], giftIds: [] };
+    if (evName[r.EventId] && o.events.indexOf(evName[r.EventId]) < 0) o.events.push(evName[r.EventId]);
+  });
+  return Object.keys(out).map(k => {
+    const o = out[k];
+    const gift = o.gifts.length ? Array.from(new Set(o.gifts)).join(' and ') : 'presence';
+    const event = o.events.length ? o.events.join(', ') : 'our wedding';
+    const fill = t => String(t || '').replace(/\{name\}/g, o.name).replace(/\{gift\}/g, gift).replace(/\{event\}/g, event).replace(/\{relation\}/g, o.relation).replace(/\{couple\}/g, couple);
+    const last = sent.filter(t => (o.guestId && t.GuestId === o.guestId) || t.Name === o.name).pop();
+    o.message = fill(o.gifts.length ? s['thanks.tplGift'] : s['thanks.tplPresence']);
+    o.messageNe = fill(s['thanks.tplNe']);
+    o.sentAt = last ? last.SentAt : o.thankedAt || '';
+    o.sentVia = last ? last.Channel : '';
+    return o;
+  });
+}
+
+function adminLogThanks_(d) {
+  appendObj_('ThankYous', {
+    ThankId: id_(), GuestId: str_(d.guestId), GiftId: (d.giftIds || []).join(','), Name: str_(d.name), Channel: str_(d.channel).slice(0, 20),
+    To: str_(d.to).slice(0, 120), Message: str_(d.message).slice(0, 2000), SentBy: ADMIN_ ? ADMIN_.name : '', SentAt: now_()
+  });
+  (d.giftIds || []).forEach(id => updateBy_('Gifts', 'GiftId', id, { ThankedAt: now_(), Status: 'Thanked', ThankedVia: str_(d.channel).slice(0, 20) }));
+  return true;
+}
+
+function adminSaveMember_(d) {
+  const row = {};
+  SHEETS.Members.filter(c => c !== 'MemberId').forEach(c => { if (d[c] !== undefined) row[c] = d[c]; });
+  if (d.MemberId) { updateBy_('Members', 'MemberId', d.MemberId, row); return d.MemberId; }
+  if (!row.GuestId || !row.Name) throw new Error('Name required');
+  row.MemberId = id_(); row.CreatedAt = now_();
+  appendObj_('Members', row);
+  return row.MemberId;
+}
+
+function adminImportGuests_(d) {
+  const rows = d.rows || [];
+  rows.forEach(r => adminSaveGuest_(Object.assign({}, r, { GuestId: '' })));
+  return rows.length;
+}
+
+function adminSaveRoom_(d) {
+  const row = { RoomId: d.RoomId || id_(), Name: str_(d.Name), Location: str_(d.Location),
+    Capacity: Number(d.Capacity) || 1, CheckIn: str_(d.CheckIn), CheckOut: str_(d.CheckOut), Notes: str_(d.Notes) };
+  upsert_('Rooms', 'RoomId', row.RoomId, row);
+  return row;
+}
+
+function adminAssignRoom_(d) {
+  updateBy_('Accommodation', 'RequestId', d.requestId, {
+    RoomId: str_(d.roomId), Status: d.roomId ? 'Assigned' : (d.status || 'Requested'), UpdatedAt: now_()
+  });
+  return true;
+}
+
+function adminSaveGame_(d) {
+  const row = {
+    GameId: d.GameId || id_(), Type: str_(d.Type) || 'quiz', TitleEn: str_(d.TitleEn), TitleNe: str_(d.TitleNe),
+    QuestionEn: str_(d.QuestionEn), QuestionNe: str_(d.QuestionNe), OptionsEn: str_(d.OptionsEn), OptionsNe: str_(d.OptionsNe),
+    Answer: Number(d.Answer) || 0, Points: Number(d.Points) || 10, Groups: str_(d.Groups) || 'All',
+    Active: bool_(d.Active) ? 'TRUE' : 'FALSE', Order: Number(d.Order) || 0
+  };
+  upsert_('Games', 'GameId', row.GameId, row);
+  return row;
+}
+
+// ---------- Pocket Pandit: live ritual ticker (admin taps "Now", guests' card flips to the top) ----------
+function getRituals_() {
+  if (settings_()['feature.rituals'] === 'FALSE') return [];
+  return table_('Rituals').filter(r => String(r.Visible).toUpperCase() !== 'FALSE')
+    .sort((a, b) => (Number(a.Order) || 0) - (Number(b.Order) || 0))
+    .map(r => ({ id: r.RitualId, eventId: r.EventId, icon: r.Icon, nameEn: r.NameEn, nameNe: r.NameNe, meaningEn: r.MeaningEn, meaningNe: r.MeaningNe, status: r.Status || 'upcoming', at: r.StartedAt }));
+}
+function ritualNow_(d) {
+  table_('Rituals').forEach(r => {
+    if (r.RitualId === d.ritualId) updateBy_('Rituals', 'RitualId', r.RitualId, { Status: d.status || 'now', StartedAt: d.status === 'upcoming' ? '' : now_() });
+    else if (r.Status === 'now' && (d.status || 'now') === 'now') updateBy_('Rituals', 'RitualId', r.RitualId, { Status: 'done' });
+  });
+  return getRituals_();
+}
+
+// Cash-envelope photo (audit trail) -> Wedding/Envelopes, private to the owner.
+function envelopePhoto_(d) {
+  const m = String(d.data || '').match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
+  if (!m) throw new Error('Invalid image');
+  const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], 'envelope_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HH-mm-ss') + '.jpg');
+  return subFolder_('Envelopes').createFile(blob).getId();
+}
+
+function adminPostLive_(d) {
+  const sh = sheet_('Live');
+  const head = headers_('Live');
+  table_('Live').forEach((r, i) => { if (bool_(r.Active)) sh.getRange(i + 2, head.indexOf('Active') + 1).setValue('FALSE'); });
+  if (d.messageEn || d.messageNe) appendObj_('Live', { Timestamp: now_(), MessageEn: str_(d.messageEn), MessageNe: str_(d.messageNe), Active: 'TRUE' });
+  return activeLive_();
+}
+
+// ---------- Helpers ----------
+
+function bandFor_(dob, nonDrinker, verified) {
+  const age = dob ? ageFrom_(dob) : '';
+  return { age: age, band: bandFrom_(age, settings_()['drink.legalAge'], nonDrinker, verified) };
+}
+
+function withDerived_(g) {
+  const b = bandFor_(g.DOB, g.NonDrinker, g.AgeVerified);
+  return Object.assign({}, g, { Age: b.age, Band: b.band });
+}
+
+function withDerivedMember_(m) {
+  const b = bandFor_(m.DOB, m.NonDrinker, m.AgeVerified);
+  return Object.assign({}, m, { Age: b.age, Band: b.band });
+}
+
+function publicGuest_(g) {
+  return {
+    GuestId: g.GuestId, Name: g.Name, NameNe: g.NameNe, Family: g.Family, Side: g.Side,
+    RelationTo: g.RelationTo, RelationType: g.RelationType,
+    Relation: g.Relation, RelationNe: g.RelationNe, Phone: g.Phone, Email: g.Email, DOB: g.DOB,
+    NonDrinker: bool_(g.NonDrinker), AdmitCount: Number(g.AdmitCount) || 1, AttendingCount: g.AttendingCount,
+    Status: g.Status, Meal: g.Meal, Allergies: g.Allergies, Arrival: g.Arrival, Departure: g.Departure,
+    Registered: bool_(g.Registered), ContactPref: g.ContactPref || '', VenueId: g.VenueId || '', GoogleLinked: !!g.GoogleEmail
+  };
+}
+
+function publicMember_(m) {
+  return {
+    MemberId: m.MemberId, Name: m.Name, NameNe: m.NameNe, RelationTo: m.RelationTo, RelationType: m.RelationType,
+    Relation: m.Relation, RelationNe: m.RelationNe, DOB: m.DOB, NonDrinker: bool_(m.NonDrinker),
+    Attending: bool_(m.Attending), IsPrimary: bool_(m.IsPrimary)
+  };
+}
+
+// ---------- Sign-in (phone or Google, no paid SMS) ----------
+
+function digits_(p) { return String(p || '').replace(/\D/g, '').slice(-10); }
+
+function dateKey_(v) {
+  const d = new Date(v);
+  return isNaN(d) ? '' : Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
+}
+
+/**
+ * method 'phone': phone + (invite code OR date of birth of anyone in the household).
+ * method 'google': Google ID token (verified with Google), matched to Email/GoogleEmail.
+ * Optional guestId links a Google account to an already-open invitation.
+ */
+function signIn_(d) {
+  const s = settings_();
+  let g = null;
+  if (d.method === 'phone') {
+    if (s['auth.phone'] !== 'TRUE') throw new Error('Phone sign-in is off');
+    const p = digits_(d.phone);
+    const code = str_(d.code).toUpperCase();
+    if (p.length < 7 || !code) throw new Error('Enter phone and code');
+    const guests = table_('Guests').filter(x => digits_(x.Phone) === p);
+    g = guests.filter(x => {
+      if (String(x.GuestId).toUpperCase() === code || String(x.InviteCode).toUpperCase() === code) return true;
+      const dob = dateKey_(code);
+      if (!dob) return false;
+      return dateKey_(x.DOB) === dob || membersOf_(x.GuestId).some(m => dateKey_(m.DOB) === dob);
+    })[0];
+    if (!g) { Utilities.sleep(800); throw new Error('No invitation matches that phone and code'); }
+  } else if (d.method === 'google') {
+    if (s['auth.google'] !== 'TRUE' || !s['auth.googleClientId']) throw new Error('Google sign-in is off');
+    const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(str_(d.credential)), { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) throw new Error('Google sign-in failed');
+    const t = JSON.parse(res.getContentText());
+    if (t.aud !== s['auth.googleClientId'] || String(t.email_verified) !== 'true') throw new Error('Google sign-in failed');
+    const email = String(t.email).toLowerCase();
+    g = table_('Guests').filter(x => String(x.GoogleEmail).toLowerCase() === email || String(x.Email).toLowerCase() === email)[0];
+    if (!g && d.guestId) {
+      g = findGuest_(d.guestId);
+      updateBy_('Guests', 'GuestId', g.GuestId, { GoogleEmail: email });
+    }
+    if (!g) throw new Error('This Google account is not linked to an invitation yet. Open your invite link first, then sign in with Google.');
+    if (!g.GoogleEmail) updateBy_('Guests', 'GuestId', g.GuestId, { GoogleEmail: email });
+  } else {
+    throw new Error('Unknown sign-in method');
+  }
+  linkGuard_(g);
+  log_('signIn:' + d.method, '', { guestId: g.GuestId, name: g.Name, by: g.Name, role: 'guest' });
+  return { guestId: g.GuestId, members: membersOf_(g.GuestId).map(publicMember_), registered: bool_(g.Registered) };
+}
+
+/**
+ * "Find my pass" for guests who lost their link: phone number plus any word of a household name
+ * (surname is enough). Only restores when exactly one household matches; misses are slowed down.
+ */
+function findPass_(d) {
+  const p = digits_(d.phone), word = normName_(d.name);
+  if (p.length < 7 || word.length < 2) throw new Error('Enter your phone number and family name');
+  const hit = g => (' ' + normName_(g.Name) + ' ' + normName_(g.Family) + ' ' + membersOf_(g.GuestId).map(m => normName_(m.Name)).join(' ') + ' ').indexOf(' ' + word) >= 0;
+  const found = table_('Guests').filter(g => digits_(g.Phone) === p && hit(g));
+  if (found.length !== 1) { Utilities.sleep(800); throw new Error('No invitation matches. Please ask the family for your link.'); }
+  const g = found[0];
+  linkGuard_(g);
+  log_('findPass', '', { guestId: g.GuestId, name: g.Name, by: g.Name, role: 'guest', summary: 'found pass by phone + family name' });
+  return { guestId: g.GuestId, members: membersOf_(g.GuestId).map(publicMember_), registered: bool_(g.Registered) };
+}
+
+// Offline door scanners send the real scan time; accept it only if it is a sane recent past time.
+function checkInAt_(at) {
+  const t = at ? new Date(at) : null;
+  return t && !isNaN(t) && t <= new Date() && new Date() - t < 3 * 86400000 ? t.toISOString() : now_();
+}
+
+// First arrival wins: a second scan (other door, re-entry, replayed offline queue) never moves CheckedInAt.
+function firstCheckIn_(name, keyCol, keyVal, at) {
+  const row = table_(name).filter(r => String(r[keyCol]) === String(keyVal))[0];
+  if (!row) throw new Error('Not found');
+  if (bool_(row.CheckedIn) && row.CheckedInAt) return Object.assign({ alreadyIn: true }, row);
+  return updateBy_(name, keyCol, keyVal, { CheckedIn: 'TRUE', CheckedInAt: checkInAt_(at) });
+}
+
+// ---------- Venues ----------
+
+function mapLink_(v) {
+  if (v.MapLink) return v.MapLink;
+  const q = v.Lat && v.Lng ? v.Lat + ',' + v.Lng : (v.Address || v.NameEn);
+  return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(q);
+}
+
+function publicVenues_() {
+  return table_('Venues').sort((a, b) => (Number(a.Order) || 0) - (Number(b.Order) || 0)).map(v => ({
+    VenueId: v.VenueId, NameEn: v.NameEn, NameNe: v.NameNe, Address: v.Address, Country: v.Country,
+    Notes: v.Notes, Selectable: bool_(v.Selectable), Map: mapLink_(v)
+  }));
+}
+
+function chooseVenue_(d) {
+  const g = findGuest_(d.guestId);
+  const v = table_('Venues').filter(x => x.VenueId === d.venueId)[0];
+  if (!v || !bool_(v.Selectable)) throw new Error('Venue not available');
+  updateBy_('Guests', 'GuestId', g.GuestId, { VenueId: v.VenueId });
+  return true;
+}
+
+// ---------- Admin-only: Brahma Bibaha planner ("vibe engineering") ----------
+// Stores only labels/nicknames you type (no links to guest records), so nothing here identifies anyone.
+
+const AGE_SCORE = { A: 5, B: 4, C: 3, D: 2, E: 1.5, F: 1 };   // A 20-30, B 30-40, C 40-50, D 1-10, E 50-60, F 60+
+const FUN_SCORE = { A: 5, B: 4, C: 3, D: 2, E: 1, F: 0 };     // very funny ... very boring
+const EPR_SCORE = { A: 3, B: 2, C: 1, D: 0.67, E: 0.33 };      // per letter, 3 letters (AAA = 9)
+
+function vibeScore_(r) {
+  const age = AGE_SCORE[String(r.AgeBand).toUpperCase()] || 0;
+  const fun = FUN_SCORE[String(r.Fun).toUpperCase()] || 0;
+  const epr = String(r.EduProf || '').toUpperCase().split('').reduce((a, c) => a + (EPR_SCORE[c] || 0), 0);
+  const eprBand = !r.EduProf ? '' : epr > 7 ? 'Best' : epr >= 4 ? 'Average' : 'Okay';
+  // Vibe = energy (fun, 50%) + youth/mix (age, 25%) + steadiness (EPR scaled to 5, 25%)
+  const vibe = Math.round((fun * 0.5 + age * 0.25 + (epr / 9 * 5) * 0.25) * 100) / 100;
+  return { age: age, fun: fun, epr: Math.round(epr * 100) / 100, eprBand: eprBand, vibe: vibe };
+}
+
+function adminPlanner_() {
+  const people = table_('Vibe').map(r => Object.assign(r, vibeScore_(r)));
+  const sides = {};
+  people.forEach(p => {
+    const k = p.Side || 'Other';
+    const s = sides[k] = sides[k] || { people: 0, confirmed: 0, unconfirmed: 0, fun: 0, age: 0, epr: 0, vibe: 0, n: 0,
+      funMix: { good: 0, okay: 0, boring: 0 }, eprMix: { Best: 0, Average: 0, Okay: 0 }, circles: {} };
+    const count = Number(p.Attendance) || 0;
+    s.people += count;
+    if (bool_(p.Confirmed)) s.confirmed += count; else s.unconfirmed += count;
+    s.n++; s.fun += p.fun; s.age += p.age; s.epr += p.epr; s.vibe += p.vibe;
+    if (p.Fun) s.funMix[p.fun >= 4 ? 'good' : p.fun >= 2 ? 'okay' : 'boring']++;
+    if (p.eprBand) s.eprMix[p.eprBand]++;
+    s.circles[p.Circle || '—'] = (s.circles[p.Circle || '—'] || 0) + count;
+  });
+  Object.keys(sides).forEach(k => {
+    const s = sides[k];
+    ['fun', 'age', 'epr', 'vibe'].forEach(x => s[x + 'Avg'] = s.n ? Math.round(s[x] / s.n * 100) / 100 : 0);
+  });
+  const traditions = table_('Traditions');
+  const boost = traditions.filter(t => bool_(t.Include)).reduce((a, t) => a + (Number(t.VibeBoost) || 0), 0);
+  const all = people.length ? people.reduce((a, p) => a + p.vibe, 0) / people.length : 0;
+  const tips = [];
+  Object.keys(sides).forEach(k => {
+    const s = sides[k];
+    if (s.funAvg && s.funAvg < 3) tips.push(k + ': low energy (' + s.funAvg + '/5) - seat high-fun people at every table, add a game or procession.');
+    if (s.unconfirmed > s.confirmed) tips.push(k + ': more unconfirmed than confirmed - send WhatsApp reminders.');
+  });
+  const ks = Object.keys(sides);
+  if (ks.length >= 2) {
+    const a = sides[ks[0]], b = sides[ks[1]];
+    if (Math.max(a.people, b.people) > 1.5 * Math.max(1, Math.min(a.people, b.people))) tips.push('Sides are unbalanced in size - mix tables across sides and use Bride vs Groom team games.');
+  }
+  if (!traditions.some(t => bool_(t.Include))) tips.push('No traditions selected yet - pick 3-5 that fit the families.');
+  return {
+    people: people, sides: sides, traditions: traditions, scenarios: table_('Scenarios'),
+    totals: { people: people.reduce((a, p) => a + (Number(p.Attendance) || 0), 0), vibePerPerson: Math.round(all * 100) / 100,
+      traditionBoost: boost, forecast: Math.min(10, Math.round((all * 2 + boost) * 10) / 10) },
+    tips: tips
+  };
+}
+
+function saveRow_(name, keyCol, d) {
+  const row = {};
+  headers_(name).forEach(h => { if (d[h] !== undefined) row[h] = typeof d[h] === 'boolean' ? (d[h] ? 'TRUE' : 'FALSE') : d[h]; });
+  row[keyCol] = d[keyCol] || id_();
+  upsert_(name, keyCol, row[keyCol], row);
+  return row;
+}
+
+const SAMPLE_RITUALS = [
+  ['🪔', 'Ganesh Puja', 'गणेश पूजा', 'Every auspicious beginning starts with Lord Ganesh, remover of obstacles. The families pray that the marriage begins without hurdles.', 'हरेक शुभ कार्य विघ्नहर्ता गणेशको पूजाबाट सुरु हुन्छ। विवाह निर्विघ्न होस् भनी प्रार्थना गरिन्छ।'],
+  ['🎊', 'Janti Swagat', 'जन्ती स्वागत', 'The groom\'s wedding procession arrives with Naumati Baja music and is welcomed by the bride\'s family. It marks two families becoming one.', 'नौमती बाजासहित जन्ती आइपुग्छन् र बेहुलीपक्षले स्वागत गर्छ। दुई परिवार एक हुने सुरुवात हो।'],
+  ['🌿', 'Dubo ko Mala', 'दुबोको माला', 'Bride and groom exchange garlands of dubo grass, which never dies and keeps spreading. It wishes their love an endless, ever-growing life.', 'नमर्ने र फैलिरहने दुबोको माला साटासाट गरिन्छ। प्रेम सधैं हरियो र बढिरहोस् भन्ने कामना हो।'],
+  ['🙏', 'Kanyadaan', 'कन्यादान', 'The bride\'s parents place her hand in the groom\'s, entrusting him with their daughter. It is considered the greatest gift a family can give.', 'बेहुलीका आमाबुबाले छोरीको हात बेहुलाको हातमा सुम्पिन्छन्। यसलाई सबैभन्दा ठूलो दान मानिन्छ।'],
+  ['🔥', 'Laja Homa', 'लाजा होम', 'The bride offers puffed rice into the sacred fire, often helped by her brother. It prays for prosperity and long life for her husband.', 'बेहुलीले दाजुभाइको सहयोगमा पवित्र अग्निमा लावा चढाउँछिन्। समृद्धि र दीर्घायुको कामना गरिन्छ।'],
+  ['👣', 'Saptapadi', 'सप्तपदी', 'The couple take seven steps around the fire, each a vow: food, strength, wealth, happiness, children, seasons and lifelong friendship.', 'अग्निको वरिपरि सात फेरा, हरेक एउटा वाचा: अन्न, बल, धन, सुख, सन्तान, ऋतु र आजीवन मित्रता।'],
+  ['❤️', 'Sindoor-Pote', 'सिन्दूर र पोते', 'The groom fills vermilion in the bride\'s hair parting and ties the green pote necklace. Together they are the sacred signs of a married woman.', 'बेहुलाले सिउँदोमा सिन्दूर हाल्छन् र हरियो पोते लगाइदिन्छन्। यी विवाहित नारीका पवित्र चिनो हुन्।'],
+  ['🎁', 'Dulhi Bhitryaune', 'दुलही भित्र्याउने', 'The new bride is welcomed into the groom\'s home and kicks a vessel of rice over the threshold. It brings abundance into her new family.', 'नयाँ दुलहीलाई घरमा भित्र्याइन्छ र उनले चामलको कलश ढाल्छिन्। नयाँ घरमा समृद्धि भित्रिने विश्वास छ।']
+];
+
+const SAMPLE_TRADITIONS = [
+  ['Fire Unity / Diyo baldinu parne', 'South Africa + Nepal', 'Families bring fire from their homes to light one new flame for the couple.', 'Each family lights a diyo from home and joins it at the mandap', 'Ceremony', 'TRUE', '2', '', ''],
+  ['Joota Chupai (Shoe stealing)', 'India / Nepal', "Bride's sisters steal the groom's shoes and demand money.", 'Bride side vs groom side game in the app', 'Ceremony', 'TRUE', '2', '', ''],
+  ['San-San-Kudo', 'Japan', 'Couple sips three times from three cups: heaven, earth, humanity.', 'Three sips of sacred water / sagun', 'Ceremony', 'TRUE', '1', '', ''],
+  ['Lazo ceremony', 'Mexico', 'A garland or rosary placed around the couple in a figure eight for eternity.', 'Marigold mala in a figure eight during saptapadi', 'Ceremony', 'TRUE', '1', '', ''],
+  ['Bury the Bourbon', 'USA (South)', 'Bottle buried at the venue for good weather, dug up to celebrate.', 'Party if you find() - treasure hunt in the app', 'Reception', 'TRUE', '2', '', ''],
+  ['Door games', 'China', 'Groom completes riddles to win the bride from her friends.', 'Dhoka challenge at the bride house', 'Janti', 'FALSE', '2', '', ''],
+  ['Zaffe procession', 'Lebanon', 'Musical parade with drummers and dancers.', 'Panche baja + janti dance', 'Janti', 'FALSE', '3', '', ''],
+  ['Henna night', 'Morocco', 'Bride hands and feet painted for luck.', 'Mehendi night', 'Pre-wedding', 'FALSE', '2', '', ''],
+  ['Kanyadan improvised blessing', 'Nepal', '', 'Personal blessings shared by both families', 'Ceremony', 'FALSE', '1', '', ''],
+  ['Muktinath both-family trip', 'Nepal', '', 'Post-wedding pilgrimage with both families', 'Post-wedding', 'FALSE', '2', '', ''],
+  ['Paper crane thousand fold', 'Japan', 'Fold 1,000 cranes for peace and longevity, with friends.', 'Folding party before the wedding', 'Pre-wedding', 'FALSE', '1', '', '']
+];
+
+const SAMPLE_SCENARIOS = [
+  ['Case 1 - Nepal, after graduation', 'Nepal (Ghar bata)', 'Dec 20 - Jan 3', '2', 'Graduation done (after May 2027)', '7000', 'USD', '', '', 'FALSE'],
+  ['Case 2 - outside US, before graduation', 'Anywhere outside US', 'Dec 20 - Jan 3', '2', 'Not graduated', '3500', 'USD', '', '', 'FALSE']
+];
+
+// Three wedding days, created by setup() when the Events sheet is empty. Edit freely in the sheet or Admin → Events.
+const DEFAULT_EVENTS = [
+  { EventId: 'DAY1', NameEn: 'Day 1 · June 16', NameNe: 'पहिलो दिन', DateTime: '2027-06-16T10:00', Venue: '', Groups: 'All', Order: 1, Visible: 'TRUE' },
+  { EventId: 'DAY2', NameEn: 'Day 2 · June 17', NameNe: 'दोस्रो दिन', DateTime: '2027-06-17T10:00', Venue: '', Groups: 'All', Order: 2, Visible: 'TRUE' },
+  { EventId: 'DAY3', NameEn: 'Day 3 · June 18', NameNe: 'तेस्रो दिन', DateTime: '2027-06-18T10:00', Venue: '', Groups: 'All', Order: 3, Visible: 'TRUE' }
+];
+
+/** Invitation is shown only once an admin has approved the household (when invite.requireApproval is on). */
+function approved_(g) {
+  return settings_()['invite.requireApproval'] === 'FALSE' || bool_(g && g.Approved);
+}
+
+/** Any guest-side change puts the household back in the admin review queue. */
+function markChanged_(guestId, note) {
+  try { updateBy_('Guests', 'GuestId', guestId, { ReviewStatus: 'Changed', ChangedAt: now_(), ChangeNote: str_(note).slice(0, 200) }); } catch (e) { }
+}
+
+function adminReview_(d) {
+  const g = findGuest_(d.guestId);
+  const patch = { ReviewStatus: 'Reviewed', ReviewedBy: ADMIN_ ? ADMIN_.name : 'admin', ReviewedAt: now_(), ChangeNote: '' };
+  if (d.approved !== undefined) patch.Approved = bool_(d.approved) ? 'TRUE' : 'FALSE';
+  if (d.events !== undefined) patch.Events = (Array.isArray(d.events) ? d.events : eventList_(d.events)).join(',');
+  updateBy_('Guests', 'GuestId', g.GuestId, patch);
+  invalidateGuest_(g.GuestId);
+  return true;
+}
+
+function eventList_(v) {
+  return String(v || '').split(',').map(x => x.trim()).filter(String);
+}
+
+/** A guest sees an event when it is visible and either they were picked for it, or (no picks) their groups match. */
+function invitedTo_(g, e, groups) {
+  const picked = eventList_(g && g.Events);
+  return picked.length ? picked.indexOf(e.EventId) >= 0 : matches_(e.Groups, groups);
+}
+
+function visibleEvents_(g, m) {
+  if (!approved_(g)) return [];
+  const now = new Date();
+  const groups = groupsFor_(g, m);
+  return table_('Events')
+    .filter(e => bool_(e.Visible) && invitedTo_(g, e, groups))
+    .sort((a, b) => (Number(a.Order) || 0) - (Number(b.Order) || 0))
+    .map(e => {
+      const unlock = e.UnlockAt ? new Date(e.UnlockAt) : null;
+      if (unlock && unlock > now) {
+        return { EventId: e.EventId, locked: true, UnlockAt: e.UnlockAt, RevealStyle: e.RevealStyle };
+      }
+      return { EventId: e.EventId, NameEn: e.NameEn, NameNe: e.NameNe, DateTime: e.DateTime, Venue: e.Venue,
+        MapLink: e.MapLink, DressCode: e.DressCode, RevealStyle: e.RevealStyle, locked: false };
+    });
+}
+
+function activeLive_() {
+  const live = table_('Live').filter(r => bool_(r.Active));
+  const l = live[live.length - 1];
+  return l ? { en: l.MessageEn, ne: l.MessageNe, at: l.Timestamp } : null;
+}
+
+function markOpened_(g, memberId, client) {
+  const first = !bool_(g.InviteOpened);
+  if (first) updateBy_('Guests', 'GuestId', g.GuestId, { InviteOpened: 'TRUE', InviteOpenedAt: now_() });
+  const who = memberName_(g, memberId) || g.Name;
+  log_('openedLink', str_(client && client.page), { guestId: g.GuestId, name: g.Name, by: who, role: 'guest',
+    summary: (first ? 'First opened' : 'Opened again') + ' by ' + who + (client && client.ua ? ' · ' + str_(client.ua).slice(0, 80) : '') });
+}
+
+function memberName_(g, memberId) {
+  if (!g || !memberId) return '';
+  const m = membersOf_(g.GuestId).filter(x => x.MemberId === str_(memberId))[0];
+  return m ? m.Name : '';
+}
+
+// Admin link control: a household's link stops working when revoked or after its expiry date.
+function linkGuard_(g) {
+  if (!g) return;
+  if (bool_(g.LinkRevoked)) throw new Error('This invitation link has been turned off. Please contact the family.');
+  const exp = g.LinkExpires ? new Date(g.LinkExpires) : null;
+  if (exp && !isNaN(exp) && new Date() > exp) throw new Error('This invitation link has expired. Please contact the family.');
+}
+
+function adminLinkControl_(d) {
+  const g = findGuest_(d.guestId), patch = {};
+  if (d.revoked !== undefined) patch.LinkRevoked = bool_(d.revoked) ? 'TRUE' : '';
+  if (d.expires !== undefined) patch.LinkExpires = str_(d.expires);
+  if (bool_(d.newCode)) patch.InviteCode = newCode_();
+  updateBy_('Guests', 'GuestId', g.GuestId, patch);
+  return Object.assign({}, g, patch);
+}
+
+function findGuest_(guestId) {
+  const g = tryGuest_(guestId);
+  if (!g) throw new Error('Invalid guest link');
+  return g;
+}
+
+function tryGuest_(guestId) {
+  if (!guestId) return null;
+  return table_('Guests').filter(x => x.GuestId === String(guestId).trim())[0] || null;
+}
+
+function settings_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('settings');
+  if (hit) return JSON.parse(hit);
+  const out = {};
+  table_('Settings').forEach(r => out[r.Key] = String(r.Value));
+  cache.put('settings', JSON.stringify(out), 30);
+  return out;
+}
+
+function isClosed_() {
+  const end = new Date(settings_()['wedding.endDate']);
+  return !isNaN(end) && new Date() > end;
+}
+
+function isAdmin_(key) { return !!adminWho_(key); }
+
+// ---------- Multiple admins ----------
+// Owner passcode lives in Script Properties (ADMIN_PASSCODE). Other admins are rows in the Admins sheet,
+// each with their own passcode and a role: owner (everything), manager (no settings/admins), helper (check-in, gifts, ledger, thank-yous).
+let ADMIN_ = null;
+function adminWho_(key) {
+  if (!key) return null;
+  const pass = PropertiesService.getScriptProperties().getProperty('ADMIN_PASSCODE');
+  if (pass && key === pass) return { name: 'Owner', role: 'owner' };
+  const a = table_('Admins').filter(x => x.Passcode && String(x.Passcode) === String(key) && String(x.Active).toUpperCase() !== 'FALSE')[0];
+  if (!a) return null;
+  try { updateBy_('Admins', 'Passcode', a.Passcode, { LastSeen: now_() }); } catch (e) { }
+  return { name: a.Name || a.Email, role: String(a.Role || 'helper').toLowerCase(), duties: dutiesOf_(a.Duties) };
+}
+function roleAllows_(role, action, duties) {
+  if (role === 'owner') return true;
+  if (/^admin\.(saveSetting|admins|saveAdmin|deleteAdmin|logs)$/.test(action)) return false;
+  if (role === 'manager') return true;
+  if (!/^admin\.(login|me|stats|analytics|guests|people|household|checkIn|checkInMember|undoCheckIn|verifyAge|verifyMember|setTable|gifts|saveCashGift|auditGift|envelopePhoto|thankGift|thankQueue|logThanks|rituals|ritualNow)$/.test(action)) return false;
+  return dutyAllows_(duties, action);
+}
+
+// Per-request memo: each sheet is read at most once per API call (big speed win).
+const MEMO_ = {};
+const SHEET_MEMO_ = {};
+
+function sheet_(name) {
+  if (SHEET_MEMO_[name]) return SHEET_MEMO_[name];
+  const sh = SpreadsheetApp.getActive().getSheetByName(name);
+  if (!sh) throw new Error('Missing sheet ' + name + ' - run setup()');
+  return (SHEET_MEMO_[name] = sh);
+}
+
+function headers_(name) {
+  if (MEMO_[name]) return MEMO_[name].head;
+  const sh = sheet_(name);
+  return sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0];
+}
+
+function table_(name) {
+  if (!MEMO_[name]) {
+    const values = sheet_(name).getDataRange().getValues();
+    const head = values.shift() || [];
+    MEMO_[name] = {
+      head: head,
+      rows: values.filter(r => r.join('') !== '').map(r => {
+        const o = {};
+        head.forEach((h, i) => o[h] = r[i] instanceof Date ? r[i].toISOString() : r[i]);
+        return o;
+      })
+    };
+  }
+  return MEMO_[name].rows.map(r => Object.assign({}, r));
+}
+
+function dirty_(name) {
+  delete MEMO_[name];
+  if (name !== 'AuditLog' && name !== 'Vibe' && name !== 'Traditions' && name !== 'Scenarios') CacheService.getScriptCache().remove('config');
+}
+
+function appendObj_(name, obj) {
+  sheet_(name).appendRow(headers_(name).map(h => obj[h] !== undefined ? obj[h] : ''));
+  dirty_(name);
+}
+
+function updateBy_(name, keyCol, keyVal, patch) {
+  const sh = sheet_(name);
+  const values = sh.getDataRange().getValues();
+  const head = values[0];
+  const k = head.indexOf(keyCol);
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][k]) === String(keyVal)) {
+      const row = head.map((h, ci) => patch[h] !== undefined ? patch[h] : values[i][ci]);
+      sh.getRange(i + 1, 1, 1, head.length).setValues([row]);
+      dirty_(name);
+      if (name === 'Settings') CacheService.getScriptCache().remove('settings');
+      return true;
+    }
+  }
+  return false;
+}
+
+function deleteBy_(name, keyCol, keyVal) {
+  const sh = sheet_(name);
+  const values = sh.getDataRange().getValues();
+  const k = values[0].indexOf(keyCol);
+  const keep = softDelete_();
+  for (let i = values.length - 1; i >= 1; i--) {
+    if (String(values[i][k]) !== String(keyVal)) continue;
+    if (keep) archive_(name, values[0], values[i]);
+    sh.deleteRow(i + 1);
+  }
+  dirty_(name);
+}
+
+/** No-delete policy: removed rows are copied to an Archive sheet first, so nothing is ever lost. */
+function archive_(name, head, row) {
+  const ss = SpreadsheetApp.getActive();
+  const a = ss.getSheetByName('Archive') || ss.insertSheet('Archive');
+  if (!a.getLastRow()) a.appendRow(['ArchivedAt', 'Sheet', 'Data']);
+  const o = {};
+  head.forEach((h, i) => o[h] = row[i]);
+  a.appendRow([now_(), name, JSON.stringify(o)]);
+}
+
+function upsert_(name, keyCol, keyVal, row) {
+  if (!updateBy_(name, keyCol, keyVal, row)) appendObj_(name, row);
+  if (name === 'Settings') CacheService.getScriptCache().remove('settings');
+  return true;
+}
+
+function upsertComposite_(name, cols, key, row) {
+  const sh = sheet_(name);
+  const values = sh.getDataRange().getValues();
+  const head = values[0];
+  const idx = cols.map(c => head.indexOf(c));
+  for (let i = 1; i < values.length; i++) {
+    if (idx.map(j => String(values[i][j])).join('|') === key) {
+      sh.getRange(i + 1, 1, 1, head.length).setValues([head.map((h, ci) => row[h] !== undefined ? row[h] : values[i][ci])]);
+      dirty_(name);
+      return true;
+    }
+  }
+  appendObj_(name, row);
+  return true;
+}
+
+function id_() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 8; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+  return s;
+}
+
+function now_() { return new Date().toISOString(); }
+function bool_(v) { return v === true || String(v).toUpperCase() === 'TRUE'; }
+function str_(v) { return v === undefined || v === null ? '' : String(v).trim(); }
+// Audit trail: who did what, to whom. extra = { guestId, name, summary, by, role }
+function log_(action, details, extra) {
+  try {
+    const x = extra || {};
+    const g = x.guestId && !x.name ? tryGuest_(x.guestId) : null;
+    appendObj_('AuditLog', {
+      Timestamp: now_(), Action: action, Details: str_(details).slice(0, 500),
+      By: x.by || (ADMIN_ ? ADMIN_.name : 'guest'), Role: x.role || (ADMIN_ ? ADMIN_.role : 'guest'),
+      GuestId: str_(x.guestId), Name: str_(x.name || (g && g.Name)), Summary: str_(x.summary).slice(0, 500)
+    });
+    if (x.guestId) guestFolderSync_(str_(x.guestId), { at: now_(), action: action, by: x.by || (ADMIN_ ? ADMIN_.name : 'guest'),
+      role: x.role || (ADMIN_ ? ADMIN_.role : 'guest'), page: str_(details).slice(0, 120), summary: str_(x.summary).slice(0, 500) });
+  } catch (e) { /* ignore */ }
+}
+
+// ---------- Per-guest Drive folder: Wedding/Guests/<Full Name> (<GuestId>)/ ----------
+// profile.json  - everything about the household (editable; Admin → "Load from Drive" applies it back)
+// activity-log.json - every interaction for this household (same fields as AuditLog)
+// invitation PDFs  - stored next to them
+
+function guestFullName_(g) {
+  const parts = [str_(g.Name), str_(g.Family)].filter(String);
+  const n = parts.length > 1 && parts[0].toLowerCase().indexOf(parts[1].toLowerCase()) >= 0 ? parts[0] : parts.join(' ');
+  return String(n || g.GuestId).replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+function guestFolder_(g) {
+  const props = PropertiesService.getScriptProperties();
+  const want = guestFullName_(g) + ' (' + g.GuestId + ')';
+  const id = props.getProperty('gf_' + g.GuestId);
+  if (id) {
+    try { const f = DriveApp.getFolderById(id); if (!f.isTrashed()) { if (f.getName() !== want) f.setName(want); return f; } } catch (e) { }
+  }
+  const root = DriveApp.getFolderById(props.getProperty('ROOT_FOLDER_ID'));
+  const it = root.getFoldersByName('Guests');
+  const parent = it.hasNext() ? it.next() : root.createFolder('Guests');
+  const ex = parent.getFoldersByName(want);
+  const f = ex.hasNext() ? ex.next() : parent.createFolder(want);
+  props.setProperty('gf_' + g.GuestId, f.getId());
+  return f;
+}
+
+function writeJson_(folder, name, obj) {
+  const text = JSON.stringify(obj, null, 2);
+  const it = folder.getFilesByName(name);
+  if (it.hasNext()) it.next().setContent(text);
+  else folder.createFile(name, text, 'application/json');
+}
+
+function readJson_(folder, name, fallback) {
+  const it = folder.getFilesByName(name);
+  if (!it.hasNext()) return fallback;
+  try { return JSON.parse(it.next().getBlob().getDataAsString()); } catch (e) { return fallback; }
+}
+
+/** Everything about one household, as plain JSON. */
+function guestProfile_(g) {
+  const id = g.GuestId;
+  const strip = r => { const o = {}; Object.keys(r).forEach(k => { if (k !== 'Thumb') o[k] = r[k] instanceof Date ? r[k].toISOString() : r[k]; }); return o; };
+  return {
+    _about: 'Edit the "guest" or "members" fields, then use Admin → Guests → Edit → Load from Drive to apply. Other sections are read-only snapshots.',
+    updatedAt: now_(), guestId: id, fullName: guestFullName_(g),
+    guest: strip(g),
+    members: membersOf_(id).map(strip),
+    events: { assigned: eventList_(g.Events), visible: visibleEvents_(g, null).map(e => ({ EventId: e.EventId, NameEn: e.NameEn, DateTime: e.DateTime, Venue: e.Venue, locked: !!e.locked })) },
+    rsvps: table_('EventRsvp').filter(r => r.GuestId === id).map(strip),
+    accommodation: table_('Accommodation').filter(r => r.GuestId === id).map(strip),
+    invites: table_('Invites').filter(r => r.GuestId === id).map(strip),
+    media: table_('Media').filter(r => r.GuestId === id).map(m => ({ MediaId: m.MediaId, Type: m.Type, FileName: m.FileName, EventId: m.EventId, Status: m.Status, Timestamp: m.Timestamp, SizeBytes: m.SizeBytes, url: 'https://drive.google.com/file/d/' + m.DriveFileId + '/view' })),
+    review: { approved: bool_(g.Approved), status: g.ReviewStatus, reviewedBy: g.ReviewedBy, reviewedAt: g.ReviewedAt, changedAt: g.ChangedAt, note: g.ChangeNote },
+    counts: { members: membersOf_(id).length, uploads: table_('Media').filter(r => r.GuestId === id && r.Status !== 'Deleted').length }
+  };
+}
+
+/** Called on every logged interaction: appends to activity-log.json and refreshes profile.json. */
+function guestFolderSync_(guestId, entry) {
+  if (settings_()['data.guestFolders'] === 'FALSE') return;
+  const lock = LockService.getScriptLock();
+  const own = !lock.hasLock();
+  try {
+    if (own) lock.waitLock(10000);
+    const g = tryGuest_(guestId);
+    if (!g) return;
+    const f = guestFolder_(g);
+    if (entry) {
+      const log = readJson_(f, 'activity-log.json', []);
+      log.push(entry);
+      writeJson_(f, 'activity-log.json', log.slice(-5000));
+    }
+    writeJson_(f, 'profile.json', guestProfile_(g));
+  } catch (e) { /* never block the guest */ } finally { if (own) try { lock.releaseLock(); } catch (e) { } }
+}
+
+/** Admin: apply an edited profile.json back to the sheet (guest + members only; IDs never change). */
+function adminLoadProfile_(d) {
+  const g = findGuest_(d.guestId);
+  const p = readJson_(guestFolder_(g), 'profile.json', null);
+  if (!p || !p.guest) throw new Error('profile.json not found or invalid');
+  const locked = ['GuestId', 'InviteCode', 'Approved', 'ReviewStatus', 'ReviewedBy', 'ReviewedAt', 'CheckedIn'];
+  const patch = {};
+  SHEETS.Guests.forEach(k => { if (locked.indexOf(k) < 0 && p.guest[k] !== undefined && String(p.guest[k]) !== String(g[k])) patch[k] = p.guest[k]; });
+  if (Object.keys(patch).length) updateBy_('Guests', 'GuestId', g.GuestId, patch);
+  const mine = membersOf_(g.GuestId).map(m => m.MemberId);
+  let mc = 0;
+  (p.members || []).forEach(m => {
+    if (mine.indexOf(m.MemberId) < 0) return;
+    const mp = {};
+    SHEETS.Members.forEach(k => { if (k !== 'MemberId' && k !== 'GuestId' && m[k] !== undefined) mp[k] = m[k]; });
+    updateBy_('Members', 'MemberId', m.MemberId, mp); mc++;
+  });
+  invalidateGuest_(g.GuestId);
+  log_('loadProfile', '', { guestId: g.GuestId, name: g.Name, summary: 'Applied profile.json · fields: ' + (Object.keys(patch).join(', ') || 'none') + ' · members updated: ' + mc });
+  return { fields: Object.keys(patch), members: mc };
+}
+
+/** Admin/owner: create or refresh folders for every household (run once after deploy). */
+function syncAllGuestFolders() {
+  table_('Guests').forEach(g => guestFolderSync_(g.GuestId, null));
+}
+
+// Short, secret-free description of an admin change for the AuditLog sheet.
+function auditSummary_(data) {
+  const d = data || {}, parts = [];
+  ['Name', 'name', 'Relation', 'RelationTo', 'Side', 'Phone', 'Email', 'Status', 'AdmitCount', 'Amount', 'amount', 'currency', 'Role', 'Key', 'key', 'Value', 'value', 'eventId', 'memberId', 'status', 'text', 'message']
+    .forEach(k => { if (d[k] !== undefined && d[k] !== '' && !SECRET_KEYS_.test(k)) parts.push(k + '=' + String(typeof d[k] === 'object' ? JSON.stringify(d[k]) : d[k]).slice(0, 80)); });
+  return parts.join(', ');
+}
+function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+
+function softDelete_() { return settings_()['data.softDelete'] !== 'FALSE'; }
+
+// ---------- Silent activity logs (Google Drive spreadsheets, free) ----------
+
+const SECRET_KEYS_ = /pass|key|credential|token|code|dob/i;
+
+function logBook_(kind) {
+  const props = PropertiesService.getScriptProperties();
+  const prop = kind === 'admin' ? 'ADMIN_LOG_ID' : 'GUEST_LOG_ID';
+  const id = props.getProperty(prop);
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { /* recreate */ } }
+  const root = DriveApp.getFolderById(props.getProperty('ROOT_FOLDER_ID'));
+  const it = root.getFoldersByName('Logs');
+  const folder = it.hasNext() ? it.next() : root.createFolder('Logs');
+  const ss = SpreadsheetApp.create(kind === 'admin' ? 'Admin Activity Log' : 'Guest Activity Log');
+  ss.getSheets()[0].appendRow(['Timestamp', 'Action', 'GuestId', 'MemberId', 'Name', 'Page', 'Device', 'Session', 'Details']);
+  ss.getSheets()[0].setFrozenRows(1);
+  DriveApp.getFileById(ss.getId()).moveTo(folder);
+  props.setProperty(prop, ss.getId());
+  return ss;
+}
+
+function activity_(kind, action, data, client) {
+  try {
+    if (kind === 'guest' && settings_()['log.activity'] === 'FALSE') return;
+    const c = client || {};
+    const clean = {};
+    Object.keys(data || {}).forEach(k => {
+      if (SECRET_KEYS_.test(k)) { clean[k] = '***'; return; }
+      const v = data[k];
+      clean[k] = typeof v === 'object' ? JSON.stringify(v).slice(0, 2000) : String(v).slice(0, 500);
+    });
+    const g = data && data.guestId ? tryGuest_(data.guestId) : null;
+    logBook_(kind).getSheets()[0].appendRow([
+      now_(), action, str_(data && data.guestId), str_(data && data.memberId), g ? g.Name : str_(data && data.name),
+      str_(c.page).slice(0, 80), str_(c.ua).slice(0, 160), str_(c.sid).slice(0, 40), JSON.stringify(clean).slice(0, 45000)
+    ]);
+  } catch (e) { /* logging must never break the app */ }
+}
+
+// One sheet write for many events (saves Apps Script quota).
+function activityBatch_(events, client) {
+  try {
+    if (settings_()['log.activity'] === 'FALSE' || !events.length) return;
+    const c = client || {};
+    const names = {};
+    const rows = events.slice(0, 200).map(d => {
+      const clean = {};
+      Object.keys(d || {}).forEach(k => { const v = d[k]; clean[k] = SECRET_KEYS_.test(k) ? '***' : typeof v === 'object' ? JSON.stringify(v).slice(0, 2000) : String(v).slice(0, 500); });
+      const gid = str_(d.guestId);
+      if (gid && !(gid in names)) { const g = tryGuest_(gid); names[gid] = g ? g.Name : ''; }
+      return [str_(d.at) || now_(), 'ui.' + str_(d.event).slice(0, 40), gid, str_(d.memberId), names[gid] || '',
+        str_(d.page || c.page).slice(0, 80), str_(c.ua).slice(0, 160), str_(c.sid).slice(0, 40), JSON.stringify(clean).slice(0, 45000)];
+    });
+    const sh = logBook_('guest').getSheets()[0];
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  } catch (e) { /* never break the app */ }
+}
+
+// ---------- People search + duplicate names ----------
+
+function normName_(n) { return str_(n).toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, ' ').trim(); }
+
+function nameOwner_(name, guestId, ownMemberIds) {
+  const n = normName_(name);
+  if (!n) return null;
+  const m = table_('Members').filter(x => normName_(x.Name) === n && x.GuestId !== guestId && !/^removed:/.test(x.GuestId) && (ownMemberIds || []).indexOf(x.MemberId) < 0)[0];
+  if (m) return m;
+  return table_('Guests').filter(x => x.GuestId !== guestId && bool_(x.Registered) && normName_(x.Name) === n)[0] || null;
+}
+
+/** Typeahead: returns names only (no phone/DOB), so guests can pick relatives and avoid duplicates. */
+function searchPeople_(d) {
+  identity_(d, true);
+  const q = normName_(d.q);
+  if (q.length < 2) return [];
+  const out = [];
+  table_('Members').forEach(m => {
+    if (/^removed:/.test(m.GuestId)) return;
+    if (normName_(m.Name).indexOf(q) >= 0 || normName_(m.NameNe).indexOf(q) >= 0) {
+      out.push({ name: m.Name, nameNe: m.NameNe, relationTo: m.RelationTo, relation: m.Relation, mine: m.GuestId === d.guestId, memberId: m.GuestId === d.guestId ? m.MemberId : '' });
+    }
+  });
+  table_('Guests').forEach(g => {
+    if (normName_(g.Name).indexOf(q) >= 0 && !out.some(o => normName_(o.name) === normName_(g.Name))) {
+      out.push({ name: g.Name, nameNe: g.NameNe, relationTo: g.RelationTo, relation: g.Relation, mine: g.GuestId === d.guestId, invited: true });
+    }
+  });
+  return out.slice(0, 8);
+}
+
+function checkName_(d) {
+  const id = identity_(d, true);
+  const dup = nameOwner_(d.name, id.guest.GuestId, membersOf_(id.guest.GuestId).map(m => m.MemberId));
+  return { duplicate: !!dup };
+}
+
+// ---------- Personal nudges (top banner) ----------
+
+function getNudges_(d) {
+  const s = settings_();
+  if (s['feature.nudges'] === 'FALSE') return [];
+  const id = identity_(d, false);
+  const out = [];
+  const add = (en, ne, href, icon) => out.push({ en: en, ne: ne, href: href, icon: icon });
+  if (!id.guest) {
+    add('Sign in with your phone to see your events', 'आफ्नो कार्यक्रम हेर्न फोनबाट साइन इन गर्नुहोस्', 'signin.html', '📱');
+    add('Share a photo from the wedding', 'विवाहको फोटो बाँड्नुहोस्', 'photos.html', '📸');
+    return out;
+  }
+  const g = id.guest;
+  const gid = g.GuestId;
+  const side = personSide_(id);
+  if (!bool_(g.Registered)) add('Finish your RSVP - it takes 1 minute', 'आफ्नो उपस्थिति पुष्टि गर्नुहोस् - १ मिनेट मात्र', 'register.html', '📝');
+  if (bool_(g.Registered) && membersOf_(gid).length < 2) add('Add your family members so they get passes', 'परिवारका सदस्य थप्नुहोस्', 'register.html#members', '👨‍👩‍👧');
+  if (s['feature.venues'] === 'TRUE' && !g.VenueId && publicVenues_().some(v => v.Selectable)) add('Choose your venue and open directions', 'स्थान रोज्नुहोस् र बाटो हेर्नुहोस्', 'index.html#venueCard', '🧭');
+  if (s['feature.invites'] === 'TRUE' && !table_('Invites').some(i => i.GuestId === gid)) add('Create your invitation PDF', 'आफ्नो निमन्त्रणा PDF बनाउनुहोस्', 'index.html#inviteCard', '💌');
+  if (s['feature.games'] === 'TRUE') {
+    const groups = groupsFor_(g, id.member);
+    const done = table_('Scores').filter(x => x.GuestId === gid).map(x => x.GameId);
+    const left = table_('Games').filter(x => bool_(x.Active) && matches_(x.Groups, groups) && done.indexOf(x.GameId) < 0);
+    if (left.length) add(left.length + ' game(s) waiting for you' + (side ? ' - help team ' + side : ''), left.length + ' खेल बाँकी छन्' + (side ? ' - ' + side + ' टिमलाई जिताउनुहोस्' : ''), 'games.html', '🎯');
+  }
+  if (s['feature.media'] === 'TRUE' && !table_('Media').some(m => m.GuestId === gid)) add('Upload your first photo or screenshot', 'पहिलो फोटो वा स्क्रिनसट अपलोड गर्नुहोस्', 'photos.html', '📸');
+  if (s['feature.memorial'] === 'TRUE' && !table_('MomDiyas').some(x => x.GuestId === gid)) add('Light a diyo for Mom', 'आमाको सम्झनामा दियो बाल्नुहोस्', 'memorial.html', '🪔');
+  if (s['feature.memorial'] === 'TRUE') add('Share Mom\'s memorial with family', 'आमाको सम्झना परिवारसँग सेयर गर्नुहोस्', 'memorial.html#share', '🪔');
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  table_('Events').filter(ev => ev.DateTime && Utilities.formatDate(new Date(ev.DateTime), Session.getScriptTimeZone(), 'yyyy-MM-dd') === today).forEach(ev => {
+    const href = 'photos.html?e=' + encodeURIComponent(ev.EventId);
+    add('Record 10 seconds of ' + ev.NameEn + ' for the couple\'s video', (ev.NameNe || ev.NameEn) + ' को १० सेकेन्ड भिडियो खिच्नुहोस्', href, '🎥');
+    add('Record a short blessing video for the couple', 'दुलहा-दुलहीलाई छोटो आशीर्वाद भिडियो पठाउनुहोस्', href, '🙏');
+  });
+  const en = String(s['engage.promptsEn'] || '').split('|').filter(String);
+  const ne = String(s['engage.promptsNe'] || '').split('|');
+  en.forEach((p, i) => add(p, ne[i] || p, 'photos.html', '✨'));
+  return out;
+}
+
+// ---------- Digital gifts / salami ----------
+
+/** Admin drops payment QR images (eSewa, Khalti, Fonepay, bank, Zelle...) into Drive: Wedding/Gift QR. File name = label. */
+function giftFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('GIFT_FOLDER_ID');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recreate */ } }
+  const root = DriveApp.getFolderById(props.getProperty('ROOT_FOLDER_ID'));
+  const it = root.getFoldersByName('Gift QR');
+  const f = it.hasNext() ? it.next() : root.createFolder('Gift QR');
+  props.setProperty('GIFT_FOLDER_ID', f.getId());
+  return f;
+}
+
+function getGiftInfo_() {
+  const s = settings_();
+  if (s['feature.gifts'] === 'FALSE') return { on: false, qrs: [] };
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('giftqr');
+  if (hit) return JSON.parse(hit);
+  const qrs = [];
+  const files = giftFolder_().getFiles();
+  while (files.hasNext()) {
+    const f = files.next();
+    if (!/^image\//.test(f.getMimeType())) continue;
+    try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) { /* already shared */ }
+    qrs.push({ id: f.getId(), label: f.getName().replace(/\.[^.]+$/, '') });
+  }
+  qrs.sort((a, b) => a.label.localeCompare(b.label));
+  const out = { on: true, qrs: qrs, currency: s['gift.currency'] || 'NPR' };
+  cache.put('giftqr', JSON.stringify(out), 600);
+  return out;
+}
+
+function sendGift_(d) {
+  const id = identity_(d, false);
+  const name = id.guest ? personName_(id) : str_(d.name).slice(0, 80);
+  if (!name) throw new Error('Please tell us your name');
+  let proof = '';
+  if (d.mediaId) {
+    const m = table_('Media').filter(x => x.MediaId === d.mediaId)[0];
+    if (m) proof = m.DriveFileId;
+  }
+  appendObj_('Gifts', {
+    GiftId: id_(), GuestId: id.guest ? id.guest.GuestId : '', MemberId: id.member ? id.member.MemberId : '', Name: name,
+    Side: id.guest ? personSide_(id) : '', Method: str_(d.method).slice(0, 60), Amount: Number(d.amount) || '', Currency: str_(d.currency).slice(0, 8),
+    Note: str_(d.note).slice(0, 1000), ProofFileId: proof, Status: 'Received', Timestamp: now_(), ThankedAt: '',
+    Relation: id.guest ? str_((id.member || id.guest).RelationTo) : str_(d.relation).slice(0, 60),
+    Phone: id.guest ? str_(id.guest.Phone) : str_(d.phone).slice(0, 30), EventId: str_(d.eventId), Anon: bool_(d.anon) ? 'TRUE' : '', Source: 'guest'
+  });
+  return { ok: true };
+}
+
+/** Logistics + engagement analytics for admin (counts only; heavy log reading limited to last 5000 rows). */
+function adminAnalytics_() {
+  const guests = table_('Guests');
+  const members = table_('Members').filter(m => !/^removed:/.test(m.GuestId));
+  const media = table_('Media');
+  const gifts = table_('Gifts');
+  const inv = table_('Invites');
+  const proofs = table_('Proofs');
+  const acc = table_('Accommodation');
+  const venues = {};
+  guests.forEach(g => { if (g.VenueId) venues[g.VenueId] = (venues[g.VenueId] || 0) + 1; });
+  const vnames = {};
+  table_('Venues').forEach(v => vnames[v.VenueId] = v.NameEn || v.VenueId);
+  const ages = { '0-12': 0, '13-17': 0, '18-35': 0, '36-60': 0, '60+': 0, unknown: 0 };
+  members.forEach(m => {
+    const a = ageFrom_(m.DOB);
+    if (a === '') ages.unknown++; else if (a < 13) ages['0-12']++; else if (a < 18) ages['13-17']++; else if (a <= 35) ages['18-35']++; else if (a <= 60) ages['36-60']++; else ages['60+']++;
+  });
+  const byEvent = {};
+  media.forEach(m => { const k = m.EventId || 'General'; byEvent[k] = (byEvent[k] || 0) + 1; });
+  const evn = {};
+  table_('Events').forEach(e => evn[e.EventId] = e.NameEn);
+  const uploaders = {};
+  media.forEach(m => { const k = m.Name || '?'; uploaders[k] = (uploaders[k] || 0) + 1; });
+  const topUploaders = Object.keys(uploaders).map(k => ({ name: k, count: uploaders[k] })).sort((a, b) => b.count - a.count).slice(0, 10);
+  const giftSum = {};
+  gifts.forEach(g => { const c = g.Currency || 'NPR'; giftSum[c] = (giftSum[c] || 0) + (Number(g.Amount) || 0); });
+
+  // Activity from the silent guest log
+  const act = { today: 0, week: 0, activeToday: 0, activeWeek: 0, byHour: Array(24).fill(0), topPages: [], topActions: [], devices: { phone: 0, desktop: 0 } };
+  try {
+    const sh = logBook_('guest').getSheets()[0];
+    const last = sh.getLastRow();
+    if (last > 1) {
+      const start = Math.max(2, last - 5000);
+      const rows = sh.getRange(start, 1, last - start + 1, 8).getValues();
+      const now = Date.now(), dayMs = 86400000;
+      const uT = {}, uW = {}, pages = {}, actions = {}, sess = {};
+      rows.forEach(r => {
+        const t = new Date(r[0]).getTime();
+        if (isNaN(t)) return;
+        const who = r[2] || r[7];
+        if (now - t < dayMs) { act.today++; uT[who] = 1; act.byHour[new Date(t).getHours()]++; }
+        if (now - t < 7 * dayMs) { act.week++; uW[who] = 1; }
+        pages[r[5] || '?'] = (pages[r[5] || '?'] || 0) + 1;
+        actions[r[1]] = (actions[r[1]] || 0) + 1;
+        if (!sess[r[7]]) { sess[r[7]] = 1; act.devices[/Mobi|Android|iPhone/i.test(r[6]) ? 'phone' : 'desktop']++; }
+      });
+      act.activeToday = Object.keys(uT).length;
+      act.activeWeek = Object.keys(uW).length;
+      const top = o => Object.keys(o).map(k => ({ k: k, n: o[k] })).sort((a, b) => b.n - a.n).slice(0, 8);
+      act.topPages = top(pages);
+      act.topActions = top(actions);
+    }
+  } catch (e) { /* log not created yet */ }
+
+  return {
+    notRegistered: guests.filter(g => !bool_(g.Registered)).map(g => ({ name: g.Name, phone: g.Phone, side: g.Side })).slice(0, 200),
+    venues: Object.keys(venues).map(k => ({ venue: vnames[k] || k, guests: venues[k] })),
+    ages: ages,
+    accommodation: { requested: acc.filter(a => a.Status === 'Requested').length, unassigned: acc.filter(a => a.Status !== 'Assigned').length },
+    invites: { requested: inv.filter(i => i.Status === 'Requested').length, approved: inv.filter(i => i.Status === 'Approved').length },
+    proofsPending: proofs.filter(p => p.Status === 'Pending').length,
+    media: { total: media.length, videos: media.filter(m => m.Type === 'video').length, sizeGB: Math.round(media.reduce((t, m) => t + (Number(m.SizeBytes) || 0), 0) / 1073741824 * 100) / 100,
+      byEvent: Object.keys(byEvent).map(k => ({ event: evn[k] || k, count: byEvent[k] })), topUploaders: topUploaders },
+    gifts: { count: gifts.length, notThanked: gifts.filter(g => !g.ThankedAt).length, totals: giftSum },
+    activity: act
+  };
+}
+
+// ---------- Invitations (PDF, admin approved) ----------
+
+function invitesFolder_() {
+  const root = DriveApp.getFolderById(PropertiesService.getScriptProperties().getProperty('ROOT_FOLDER_ID'));
+  const it = root.getFoldersByName('Invites');
+  return it.hasNext() ? it.next() : root.createFolder('Invites');
+}
+
+function requestInvite_(d) {
+  const s = settings_();
+  if (s['feature.invites'] !== 'TRUE') throw new Error('Invitations are off');
+  const id = identity_(d, true);
+  const g = id.guest;
+  const prev = table_('Invites').filter(i => i.GuestId === g.GuestId && i.Status !== 'Rejected')[0];
+  if (prev) return publicInvite_(prev);
+  const row = { InviteId: id_(), GuestId: g.GuestId, Name: str_(d.name || g.Name).slice(0, 80), NameNe: str_(d.nameNe || g.NameNe).slice(0, 80),
+    Lang: /^(en|ne|mix)$/.test(d.lang) ? d.lang : 'mix', Status: 'Requested', DriveFileId: '', RequestedAt: now_(), ApprovedAt: '', Hidden: '' };
+  appendObj_('Invites', row);
+  if (s['invite.autoApprove'] === 'TRUE') return publicInvite_(adminApproveInvite_({ inviteId: row.InviteId }));
+  return publicInvite_(row);
+}
+
+function getInvite_(d) {
+  const id = identity_(d, true);
+  const r = table_('Invites').filter(i => i.GuestId === id.guest.GuestId).pop();
+  return r ? publicInvite_(r) : null;
+}
+
+function publicInvite_(r) {
+  const ok = r.Status === 'Approved' && r.DriveFileId;
+  return { status: r.Status, url: ok ? 'https://drive.google.com/uc?export=download&id=' + r.DriveFileId : '', view: ok ? 'https://drive.google.com/file/d/' + r.DriveFileId + '/view' : '' };
+}
+
+function adminApproveInvite_(d) {
+  const inv = table_('Invites').filter(i => i.InviteId === d.inviteId)[0];
+  if (!inv) throw new Error('Not found');
+  const g = tryGuest_(inv.GuestId) || {};
+  const file = inviteCardPdf_(g, inv.Name, inv.NameNe, inv.Lang);
+  log_('invitePdf', '', { guestId: inv.GuestId, name: inv.Name, summary: 'Invitation card approved/generated · file ' + file.getName() });
+  return updateBy_('Invites', 'InviteId', inv.InviteId, { Status: 'Approved', DriveFileId: file.getId(), ApprovedAt: now_() });
+}
+
+/**
+ * Standard one-page A4 printable card from Prajjwol & Swosti. guest {} = general card (all visible days).
+ * Language: 'en', 'ne' or 'mix' (Nepanglish: Nepali names/headings, English details - never both).
+ */
+function inviteCardPdf_(g, name, nameNe, lang) {
+  const s = settings_();
+  const general = !g || !g.GuestId;
+  const events = (general ? table_('Events').filter(x => bool_(x.Visible)) : visibleEvents_(g, null).filter(x => !x.locked))
+    .sort((a, b) => (Number(a.Order) || 0) - (Number(b.Order) || 0));
+  const e = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const L = /^(en|ne|mix)$/.test(lang) ? lang : 'mix';
+  const pick = (en, ne, short) => L === 'en' ? e(en) : L === 'ne' ? e(ne || en) : e(short ? (ne || en) : en);
+  const groom = pick(s['couple.groomEn'], s['couple.groomNe'], true), bride = pick(s['couple.brideEn'], s['couple.brideNe'], true);
+  const who = general ? '' : str_(name || g.Name);
+  const fill = t => String(t || '').split('{name}').join(who || (L === 'ne' ? 'आदरणीय' : 'Family & Friends'));
+  const tz = Session.getScriptTimeZone();
+  const when = d => d && !isNaN(new Date(d)) ? Utilities.formatDate(new Date(d), tz, 'EEEE, d MMMM yyyy · h:mm a') : '';
+  const html = '<html><head><meta charset="utf-8"><style>' +
+    '@page{size:A4;margin:0}html,body{margin:0;padding:0}' +
+    'body{font-family:"Noto Serif Devanagari","Noto Serif",Georgia,serif;color:#5a1020}' +
+    '.page{box-sizing:border-box;width:210mm;height:296mm;padding:12mm;background:#fffaf0}' +
+    '.frame{box-sizing:border-box;height:100%;border:3px solid #b8860b;outline:1px solid #b8860b;outline-offset:-8px;padding:14mm 16mm;text-align:center}' +
+    '.top{color:#b8860b;font-size:14pt;letter-spacing:2px}.mantra{color:#8b1a1a;font-size:12pt;line-height:1.7;margin:4mm 0}' +
+    '.mm{font-size:9pt;color:#7a5a4e;font-style:italic}.inv{font-size:12pt;margin:7mm 0 2mm}' +
+    '.names{font-size:34pt;color:#8b1a1a;margin:3mm 0}.amp{color:#b8860b;font-size:22pt}' +
+    '.line{width:50%;margin:5mm auto;border-top:1px solid #b8860b}' +
+    '.ev{margin:3mm auto;max-width:130mm;font-size:12pt}.ev b{color:#8b1a1a;font-size:13pt}' +
+    '.foot{margin-top:7mm;font-size:11pt}.rsvp{margin-top:4mm;font-size:9pt;color:#7a5a4e}' +
+    '</style></head><body><div class="page"><div class="frame">' +
+    '<div class="top">' + e(s['invite.mantraTop'] || '॥ श्री गणेशाय नमः ॥') + '</div>' +
+    (s['feature.mantra'] !== 'FALSE' && s['invite.mantra'] ? '<div class="mantra">' + e(s['invite.mantra']) + '</div>' +
+      (L !== 'ne' && s['invite.mantraMeaning'] ? '<div class="mm">' + e(s['invite.mantraMeaning']) + '</div>' : '') : '') +
+    '<div class="inv">' + (who ? pick('Dear ' + who + ',', (nameNe || who) + ' ज्यू,', false) + '<br>' : '') +
+      pick('Together with our families, we joyfully invite you to our wedding ceremony', 'हाम्रा परिवारसहित, हाम्रो शुभ विवाह समारोहमा तपाईंलाई हार्दिक निमन्त्रणा गर्दछौं', false) + '</div>' +
+    '<div class="names">' + groom + ' <span class="amp">&amp;</span> ' + bride + '</div>' +
+    '<div class="line"></div>' +
+    events.map(ev => '<div class="ev"><b>' + pick(ev.NameEn, ev.NameNe, false) + '</b><br>' + e(when(ev.DateTime)) +
+      (ev.Venue ? '<br>' + e(ev.Venue) : '') + (ev.DressCode ? '<br><i>' + e(ev.DressCode) + '</i>' : '') + '</div>').join('') +
+    '<div class="line"></div>' +
+    '<div class="foot">' + pick('Your presence and blessings will make our day complete.', 'तपाईंको शुभ उपस्थिति र आशीर्वादको प्रतीक्षामा।', false) + '<br><br>' +
+      pick('With love,', 'सप्रेम,', false) + '<br><b>' + groom + ' &amp; ' + bride + '</b></div>' +
+    (s['app.helpPhone'] ? '<div class="rsvp">RSVP · ' + e(s['app.helpPhone']) + '</div>' : '') +
+    '</div></div></body></html>';
+  const full = general ? '' : [str_(g.Name), str_(g.Family)].filter(String).filter((x, i, a) => i === 0 || a[0].indexOf(x) < 0).join(' ');
+  const safe = x => String(x).replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const fname = 'Invitation - ' + safe(full || who || 'General') + ' - ' + Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HHmm') + '.pdf';
+  // Personal cards live in the household folder Wedding/Guests/<Full Name> (<GuestId>)/; general cards in Wedding/Invites/General
+  let folder;
+  if (general) { const root = invitesFolder_(), it = root.getFoldersByName('General'); folder = it.hasNext() ? it.next() : root.createFolder('General'); }
+  else folder = guestFolder_(g);
+  const file = folder.createFile(Utilities.newBlob(html, 'text/html', 'invite.html').getAs('application/pdf').setName(fname));
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return file;
+}
+
+/** Admin: general card (no guestId) or a personalised card for any household, any time. */
+function adminGenerateCard_(d) {
+  const g = d.guestId ? findGuest_(d.guestId) : {};
+  const file = inviteCardPdf_(g, d.name || g.Name, d.nameNe || g.NameNe, d.lang);
+  return { url: 'https://drive.google.com/uc?export=download&id=' + file.getId(), view: 'https://drive.google.com/file/d/' + file.getId() + '/view', name: file.getName() };
+}
+
+/** Guest: personalised card, only after the admin has approved the household. */
+function generateCard_(d) {
+  if (settings_()['feature.invites'] !== 'TRUE') throw new Error('Invitations are off');
+  const id = identity_(d, true);
+  if (!approved_(id.guest)) throw new Error('Your invitation is still being reviewed by the hosts.');
+  const file = inviteCardPdf_(id.guest, id.guest.Name, id.guest.NameNe, d.lang);
+  log_('invitePdf', '', { guestId: id.guest.GuestId, name: id.guest.Name, by: id.member ? id.member.Name : id.guest.Name, role: 'guest', summary: 'Guest generated A4 card · ' + file.getName() });
+  return { url: 'https://drive.google.com/uc?export=download&id=' + file.getId(), view: 'https://drive.google.com/file/d/' + file.getId() + '/view' };
+}
+
+// ---------- Screenshot proofs for games/challenges ----------
+
+/** Called after a screenshot was uploaded via startUpload/finishUpload. Links it to a game for review/points. */
+function submitProof_(d) {
+  const id = identity_(d, true);
+  const media = table_('Media').filter(m => m.MediaId === d.mediaId && m.GuestId === id.guest.GuestId)[0];
+  if (!media) throw new Error('Upload the screenshot first');
+  const game = table_('Games').filter(g => g.GameId === d.gameId && bool_(g.Active))[0];
+  if (!game) throw new Error('Game not available');
+  const memberId = id.member ? id.member.MemberId : '';
+  if (table_('Proofs').some(p => p.GuestId === id.guest.GuestId && p.MemberId === memberId && p.GameId === game.GameId && p.Status !== 'Rejected')) throw new Error('Already submitted');
+  appendObj_('Proofs', { ProofId: id_(), GuestId: id.guest.GuestId, MemberId: memberId, Name: personName_(id), Side: personSide_(id),
+    GameId: game.GameId, DriveFileId: media.DriveFileId, Status: 'Pending', Points: Number(game.Points) || 0, Timestamp: now_(), Hidden: '' });
+  return { pending: true };
+}

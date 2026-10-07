@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Link control tests</title></head>
+<body>
+<pre id="out">RUNNING</pre>
+<script>localStorage.clear(); sessionStorage.clear();</script>
+<script src="../demo-data/demo-api.js"></script>
+<script>
+(function () {
+  const results = [];
+  const api = (a, d) => window.DEMO_API.handle(a, d || {});
+  const throws = (fn, re) => { try { fn(); return false; } catch (e) { return re.test(e.message); } };
+  function test(name, fn) { try { results.push((fn() ? 'PASS ' : 'FAIL ') + name); } catch (e) { results.push('FAIL ' + name + ' :: ' + e.message); } }
+
+  test('active code resolves', () => api('resolveCode', { code: 'DEMO02' }).guestId === 'G002');
+  test('unknown code rejected', () => throws(() => api('resolveCode', { code: 'NOPE99' }), /not found/i));
+
+  test('revoke blocks code', () => { api('admin.linkControl', { guestId: 'G002', revoked: true }); return throws(() => api('resolveCode', { code: 'DEMO02' }), /turned off/i); });
+  test('revoke blocks guest actions', () => throws(() => api('getConfig', { guestId: 'G002' }), /turned off/i));
+  test('admin actions still work on revoked guest', () => !throws(() => api('admin.linkControl', { guestId: 'G002', revoked: false }), /./));
+  test('restore re-enables code', () => api('resolveCode', { code: 'DEMO02' }).guestId === 'G002');
+
+  test('past expiry blocks code', () => { api('admin.linkControl', { guestId: 'G002', expires: '2000-01-01T23:59:59' }); return throws(() => api('resolveCode', { code: 'DEMO02' }), /expired/i); });
+  test('future expiry allows code', () => { api('admin.linkControl', { guestId: 'G002', expires: '2999-01-01T23:59:59' }); return api('resolveCode', { code: 'DEMO02' }).guestId === 'G002'; });
+  test('blank expiry clears it', () => { const g = api('admin.linkControl', { guestId: 'G002', expires: '' }); return g.LinkExpires === '' && api('resolveCode', { code: 'DEMO02' }).guestId === 'G002'; });
+
+  test('new code invalidates old one', () => {
+    const g = api('admin.linkControl', { guestId: 'G002', newCode: true });
+    return g.InviteCode && g.InviteCode !== 'DEMO02' && throws(() => api('resolveCode', { code: 'DEMO02' }), /not found/i) && api('resolveCode', { code: g.InviteCode }).guestId === 'G002';
+  });
+  test('unknown guest rejected', () => throws(() => api('admin.linkControl', { guestId: 'XXX', revoked: true }), /not found/i));
+  test('other guests unaffected', () => api('resolveCode', { code: 'DEMO01' }).guestId === 'G001');
+
+  localStorage.clear();
+  const parse = async (path) => { const r = await fetch(path); if (!r.ok) throw new Error('HTTP ' + r.status); new Function(await r.text()); return true; };
+  Promise.all(['../apps-script/Code.gs', '../js/admin.js', '../js/api.js', '../demo-data/demo-api.js'].map(p => parse(p).then(() => results.push('PASS syntax ' + p), e => results.push('FAIL syntax ' + p + ' :: ' + e.message)))).then(finish);
+  function finish() {
+  const fails = results.filter(r => r.indexOf('FAIL') === 0).length;
+  document.getElementById('out').textContent = results.join('\n') + '\nRESULT ' + (fails ? 'FAILED ' + fails : 'OK') + ' ' + results.length;
+  }
+})();
+</script>
+</body></html>

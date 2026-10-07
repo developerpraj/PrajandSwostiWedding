@@ -1,0 +1,271 @@
+﻿(async function () {
+  const msg = document.getElementById('msg');
+  const form = document.getElementById('regForm');
+  const accForm = document.getElementById('accForm');
+  let cfg, data;
+
+  try { cfg = await App.boot(); } catch (e) { App.msg(msg, e.message, 'err'); return; }
+
+  const id = App.guestId();
+  if (!id) { location.replace('signin.html?next=register.html'); return; }
+  if (!App.on(cfg, 'feature.registration') || !App.on(cfg, 'registration.open')) { App.msg(msg, I18N.t('reg.closed'), 'err'); return; }
+
+  try { data = await API.call('getGuest', { guestId: id }); }
+  catch (e) { App.msg(msg, I18N.t('common.invalidLink'), 'err'); return; }
+
+  const g = data.guest;
+  App.remember(data.members, data.memberId);
+  App.setSide(g.Side, cfg);
+  const max = g.AdmitCount || 1;
+  document.getElementById('maxCount').textContent = max;
+  accForm.People.max = max;
+  const showDrink = App.on(cfg, 'feature.drinkBand');
+  document.getElementById('nonDrinkerRow').hidden = !showDrink;
+
+  const relTo = cfg.relationTo || ['Bride', 'Groom', "Bride's family", "Groom's family", 'Both'];
+  const relTypes = cfg.relationTypes || ['Family', 'Friend', 'Colleague', 'Neighbor', 'Other'];
+  function fillSelects(root) {
+    root.querySelectorAll('select.rel-to').forEach(s => {
+      const v = s.value || s.dataset.value || '';
+      s.innerHTML = '<option value="">—</option>' + relTo.map(r => '<option value="' + App.esc(r) + '">' + App.esc(I18N.t('rel.' + r)) + '</option>').join('');
+      s.value = v;
+    });
+    root.querySelectorAll('select.rel-type').forEach(s => {
+      const v = s.value || s.dataset.value || '';
+      s.innerHTML = '<option value="">—</option>' + relTypes.map(r => '<option value="' + App.esc(r) + '">' + App.esc(I18N.t('type.' + r)) + '</option>').join('');
+      s.value = v;
+    });
+  }
+  fillSelects(form);
+
+  ['Name', 'NameNe', 'Phone', 'Email', 'Relation', 'RelationNe', 'Meal', 'Allergies', 'Arrival', 'Departure'].forEach(k => {
+    if (g[k]) form[k].value = String(g[k]).slice(0, k === 'Arrival' || k === 'Departure' ? 10 : 200);
+  });
+  if (g.RelationTo) form.RelationTo.value = g.RelationTo;
+  else if (g.Side === 'Bride' || g.Side === 'Groom') form.RelationTo.value = g.Side + "'s family";
+
+  // Contact preference: phone-first, email optional (admin can require it)
+  const channels = String(cfg['contact.channels'] || 'whatsapp,sms,email').split(',').map(s => s.trim()).filter(String);
+  const cp = document.getElementById('contactPref');
+  const fillContact = () => {
+    const v = cp.value || g.ContactPref || channels[0];
+    cp.innerHTML = channels.map(ch => '<option value="' + App.esc(ch) + '">' + App.esc(I18N.t('contact.' + ch)) + '</option>').join('');
+    cp.value = v;
+  };
+  fillContact();
+  const reqEmail = App.on(cfg, 'contact.requireEmail');
+  form.Email.required = reqEmail;
+  document.getElementById('noEmailHint').hidden = reqEmail;
+
+  // Venue choice with Google Maps navigation
+  const venues = cfg.venues || [];
+  const vBox = document.getElementById('venueBox');
+  const renderVenues = () => {
+    document.getElementById('venues').innerHTML = venues.map(v => App.venueCard(v, form.VenueId.value === v.VenueId)).join('');
+  };
+  if (venues.length) {
+    vBox.hidden = false;
+    form.VenueId.value = g.VenueId || '';
+    renderVenues();
+    document.getElementById('venues').addEventListener('click', e => {
+      if (!e.target.closest('[data-choose]')) return;
+      form.VenueId.value = e.target.closest('[data-venue]').dataset.venue;
+      renderVenues();
+    });
+  }
+  document.addEventListener('langchange', () => { fillContact(); if (venues.length) renderVenues(); });
+  if (g.RelationType) form.RelationType.value = g.RelationType;
+  if (g.DOB) form.DOB.value = String(g.DOB).slice(0, 10);
+  if (g.Status && g.Status !== 'Pending') form.Status.value = g.Status;
+  form.NonDrinker.checked = !!g.NonDrinker;
+  const sideOf = r => /^Bride/.test(r) ? 'Bride' : /^Groom/.test(r) ? 'Groom' : r ? 'Both' : '';
+  form.RelationTo.addEventListener('change', () => App.setSide(sideOf(form.RelationTo.value), cfg));
+
+  // ---------- Family members (remembered on this phone) ----------
+  const famBox = document.getElementById('family');
+  const addBtn = document.getElementById('addMember');
+  function memberRow(m) {
+    m = m || {};
+    const div = document.createElement('div');
+    div.className = 'card member-row';
+    div.dataset.id = m.MemberId || '';
+    div.innerHTML =
+      '<div class="grid">' +
+      '<div class="ta"><label>' + App.esc(I18N.t('reg.name')) + '</label><input data-k="Name" required maxlength="80" autocomplete="off" value="' + App.esc(m.Name || '') + '"><div class="ta-list" hidden></div><small class="dup-msg err-text" hidden></small></div>' +
+      '<div><label>' + App.esc(I18N.t('reg.nameNe')) + '</label><input data-k="NameNe" maxlength="80" value="' + App.esc(m.NameNe || '') + '"></div>' +
+      '<div><label>' + App.esc(I18N.t('rel.to')) + '</label><select data-k="RelationTo" class="rel-to" required data-value="' + App.esc(m.RelationTo || form.RelationTo.value) + '"></select></div>' +
+      '<div><label>' + App.esc(I18N.t('rel.type')) + '</label><select data-k="RelationType" class="rel-type" data-value="' + App.esc(m.RelationType || 'Family') + '"></select></div>' +
+      '<div><label>' + App.esc(I18N.t('reg.relation')) + '</label><input data-k="Relation" list="relations" maxlength="60" value="' + App.esc(m.Relation || '') + '"></div>' +
+      '<div><label>' + App.esc(I18N.t('reg.dob')) + '</label><input data-k="DOB" type="date" value="' + App.esc(String(m.DOB || '').slice(0, 10)) + '"></div>' +
+      '</div>' +
+      '<label class="check"><input type="checkbox" data-k="Attending"' + (m.Attending === false ? '' : ' checked') + '> ' + App.esc(I18N.t('fam.attending')) + '</label> ' +
+      (showDrink ? '<label class="check"><input type="checkbox" data-k="NonDrinker"' + (m.NonDrinker ? ' checked' : '') + '> ' + App.esc(I18N.t('reg.nonDrinker')) + '</label> ' : '') +
+      '<button type="button" class="btn ghost" data-remove>' + App.esc(I18N.t('fam.remove')) + '</button>';
+    div.querySelector('[data-remove]').onclick = () => { div.remove(); updateAdd(); };
+    famBox.appendChild(div);
+    fillSelects(div);
+    typeahead(div);
+    updateAdd();
+  }
+
+  // ---------- Pick relatives while typing + block duplicate names ----------
+  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, ' ').trim();
+  const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+  function localDup(input) {
+    const n = norm(input.value);
+    if (!n) return false;
+    const all = [form.Name].concat([...famBox.querySelectorAll('[data-k="Name"]')]).filter(x => x !== input);
+    return all.some(x => norm(x.value) === n);
+  }
+  function typeahead(row) {
+    const input = row.querySelector('[data-k="Name"]');
+    const list = row.querySelector('.ta-list');
+    const dupMsg = row.querySelector('.dup-msg');
+    const setDup = text => { dupMsg.textContent = text || ''; dupMsg.hidden = !text; input.setCustomValidity(text || ''); };
+    const search = debounce(async () => {
+      const q = input.value.trim();
+      if (localDup(input)) { setDup(I18N.t('dup.same')); list.hidden = true; return; }
+      setDup('');
+      if (q.length < 2) { list.hidden = true; return; }
+      let res = [];
+      try { res = await API.call('searchPeople', { guestId: id, q: q }); } catch (e) { return; }
+      const mineIds = [...famBox.querySelectorAll('.member-row')].map(r => r.dataset.id);
+      res = res.filter(p => !(p.mine && mineIds.indexOf(p.memberId) >= 0));
+      if (!res.length) { list.hidden = true; return; }
+      list.innerHTML = '<div class="muted ta-h">' + App.esc(I18N.t('dup.pick')) + '</div>' + res.map((p, i) =>
+        '<button type="button" data-i="' + i + '">' + App.esc(I18N.bi(p.name, p.nameNe || p.name)) +
+        ' <small class="muted">' + App.esc([p.relation, p.relationTo].filter(String).join(' · ')) + (p.mine ? ' ✅' : '') + '</small></button>').join('');
+      list.hidden = false;
+      list.onclick = ev => {
+        const b = ev.target.closest('button[data-i]');
+        if (!b) return;
+        const p = res[Number(b.dataset.i)];
+        list.hidden = true;
+        if (p.mine) { row.dataset.id = p.memberId; input.value = p.name; setDup(''); }
+        else { input.value = p.name; setDup(I18N.t('dup.exists')); }
+        const ne = row.querySelector('[data-k="NameNe"]'); if (ne && !ne.value) ne.value = p.nameNe || '';
+        const rel = row.querySelector('[data-k="Relation"]'); if (rel && !rel.value) rel.value = p.relation || '';
+        API.track('pickRelative', { name: p.name, own: !!p.mine });
+      };
+    }, 250);
+    input.addEventListener('input', search);
+    input.addEventListener('blur', () => setTimeout(() => { list.hidden = true; }, 200));
+    input.addEventListener('change', async () => {
+      if (localDup(input)) return setDup(I18N.t('dup.same'));
+      if (!input.value.trim()) return;
+      try { const r = await API.call('checkName', { guestId: id, name: input.value }); if (r.duplicate && !row.dataset.id) setDup(I18N.t('dup.exists')); } catch (e) { }
+    });
+  }
+  function updateAdd() { addBtn.hidden = famBox.children.length + 1 >= max; }
+  (data.members || []).filter(m => !m.IsPrimary).forEach(memberRow);
+  addBtn.onclick = () => memberRow();
+  updateAdd();
+  function readMembers() {
+    return [...famBox.querySelectorAll('.member-row')].map(row => {
+      const o = { MemberId: row.dataset.id };
+      row.querySelectorAll('[data-k]').forEach(el => o[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value);
+      return o;
+    }).filter(m => m.Name);
+  }
+
+  const rsvpMap = {};
+  (data.rsvps || []).forEach(r => rsvpMap[r.EventId] = r);
+
+  function renderEvents() {
+    const box = document.getElementById('events');
+    if (!data.events.length) { box.innerHTML = '<p class="muted">—</p>'; return; }
+    box.innerHTML = data.events.map(ev => {
+      if (ev.locked) {
+        return '<div class="event-row locked"><span>🔒 ' + App.esc(I18N.t('reg.locked')) + '</span></div>';
+      }
+      const r = rsvpMap[ev.EventId] || {};
+      const resp = r.Response || '';
+      const when = ev.DateTime ? new Date(ev.DateTime).toLocaleString() : '';
+      const opts = ['Yes', 'Maybe', 'No'].map(o =>
+        '<label><input type="radio" name="ev_' + App.esc(ev.EventId) + '" value="' + o + '"' + (resp === o ? ' checked' : '') +
+        '><span>' + App.esc(I18N.t('rsvp.' + o)) + '</span></label>').join('');
+      return '<div class="event-row" data-event="' + App.esc(ev.EventId) + '">' +
+        '<div><b>' + App.esc(I18N.bi(ev.NameEn, ev.NameNe)) + '</b><div class="muted">' + App.esc(when) + ' · ' + App.esc(ev.Venue || '') + '</div></div>' +
+        '<div><span class="seg">' + opts + '</span> ' +
+        '<input type="number" class="ev-count" min="0" max="' + max + '" value="' + (r.Count !== undefined && r.Count !== '' ? r.Count : max) + '" style="width:70px"></div></div>';
+    }).join('');
+  }
+  renderEvents();
+  // After an event has started, guests can tick the functions they actually attended (one tap each, saved instantly).
+  function renderAttended() {
+    const box = document.getElementById('attended');
+    if (!box || cfg['feature.attended'] === 'FALSE') return;
+    const past = data.events.filter(ev => !ev.locked && ev.DateTime && new Date(ev.DateTime) <= new Date());
+    box.hidden = !past.length;
+    box.querySelector('.chips').innerHTML = past.map(ev => {
+      const on = (rsvpMap[ev.EventId] || {}).Attended;
+      return '<label class="chip"><input type="checkbox" data-att="' + App.esc(ev.EventId) + '"' + (String(on).toUpperCase() === 'TRUE' ? ' checked' : '') + '><span>' + App.esc(I18N.bi(ev.NameEn, ev.NameNe)) + '</span></label>';
+    }).join('');
+  }
+  renderAttended();
+  document.addEventListener('langchange', renderAttended);
+  document.getElementById('attended') && document.getElementById('attended').addEventListener('change', async e => {
+    const c = e.target.closest('[data-att]'); if (!c) return;
+    const r = rsvpMap[c.dataset.att] = rsvpMap[c.dataset.att] || {};
+    r.Attended = c.checked ? 'TRUE' : 'FALSE';
+    try { await API.call('markAttended', { guestId: id, events: [{ EventId: c.dataset.att, attended: c.checked, count: r.Count || max }] }); if (navigator.vibrate) navigator.vibrate(30); }
+    catch (err) { c.checked = !c.checked; }
+  });
+  document.addEventListener('langchange', () => { renderEvents(); fillSelects(form); });
+  form.hidden = false;
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    const names = [form.Name.value].concat(readMembers().map(m => m.Name)).map(norm);
+    if (names.some((n, i) => names.indexOf(n) !== i) || famBox.querySelector('.dup-msg:not([hidden])')) {
+      App.msg(document.getElementById('msg'), I18N.t('dup.same'), 'err');
+      return;
+    }
+    btn.disabled = true;
+    const f = Object.fromEntries(new FormData(form).entries());
+    f.NonDrinker = form.NonDrinker.checked;
+    const events = [...document.querySelectorAll('#events [data-event]')].map(row => {
+      const sel = row.querySelector('input[type=radio]:checked');
+      return { EventId: row.dataset.event, Response: sel ? sel.value : '', Count: row.querySelector('.ev-count').value };
+    }).filter(x => x.Response);
+    App.msg(msg, I18N.t('reg.saving'), 'ok');
+    form.classList.add('saving');
+    try {
+      const r = await API.call('register', { guestId: id, form: f, events: events, members: readMembers() });
+      App.remember(r.members, r.primaryMemberId);
+      App.setSide(sideOf(f.RelationTo), cfg);
+      App.msg(msg, I18N.t('reg.saved'), 'ok');
+      window.scrollTo(0, 0);
+      setTimeout(() => location.href = App.withGuest('pass.html'), 1500);
+    } catch (err) {
+      App.msg(msg, err.message, 'err');
+    } finally {
+      form.classList.remove('saving');
+      btn.disabled = false;
+    }
+  });
+
+  // Accommodation
+  if (data.accommodation && data.accommodation.eligible) {
+    const req = data.accommodation.request;
+    if (req) {
+      accForm.Nights.value = req.Nights || 1;
+      accForm.People.value = req.People || 1;
+      accForm.Needs.value = req.Needs || '';
+      document.getElementById('accStatus').textContent = I18N.t('acc.status') + ': ' + req.Status;
+    }
+    accForm.hidden = false;
+    accForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(accForm).entries());
+      try {
+        const r = await API.call('requestAccommodation', Object.assign({ guestId: id }, f));
+        document.getElementById('accStatus').textContent = I18N.t('acc.status') + ': ' + r.Status;
+        App.msg(document.getElementById('accMsg'), I18N.t('acc.saved'), 'ok');
+      } catch (err) {
+        App.msg(document.getElementById('accMsg'), err.message, 'err');
+      }
+    });
+  }
+})();

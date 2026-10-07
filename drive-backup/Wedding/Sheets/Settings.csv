@@ -1,0 +1,81 @@
+﻿Key,Value,Type,Group,Description
+lang.default,mix,"select:en,ne,mix",General,Default language
+couple.brideEn,Bride,text,General,Bride name (English)
+couple.brideNe,दुलही,text,General,Bride name (Nepali)
+couple.groomEn,Groom,text,General,Groom name (English)
+couple.groomNe,दुलाहा,text,General,Groom name (Nepali)
+wedding.date,2026-12-12T10:00,datetime,General,Main ceremony date/time
+wedding.endDate,2026-12-15T23:59,datetime,General,App turns OFF automatically after this date/time
+app.keepMemorialAfterEnd,TRUE,toggle,General,Keep memorial page open after the end date
+feature.registration,TRUE,toggle,Features,Guest registration
+registration.open,TRUE,toggle,Registration,Registration open
+feature.accommodation,TRUE,toggle,Features,Accommodation requests
+accommodation.open,TRUE,toggle,Accommodation,Accept accommodation requests
+feature.drinkBand,TRUE,toggle,Features,Age verification & drinking band
+drink.legalAge,18,number,Drinking,Legal drinking age
+feature.nameTags,TRUE,toggle,Features,Name tags
+feature.live,TRUE,toggle,Features,What's happening now banner
+feature.memorial,TRUE,toggle,Features,Memorial for Mom
+memorial.moderation,TRUE,toggle,Memorial,Review memories before showing
+feature.media,TRUE,toggle,Features,Photo & video sharing
+media.moderation,FALSE,toggle,Media,Review uploads before others can see them
+media.allowVisitors,TRUE,toggle,Media,Allow uploads from venue QR without personal link
+media.maxSizeMB,500,number,Media,Max file size (MB)
+media.largeAlbumUrl,,text,Media,Shared album link (e.g. Google Photos) shown when a file is bigger than the max size
+feature.rituals,TRUE,toggle,Features,Pocket Pandit: live ritual guide for guests
+media.audioCheck,TRUE,toggle,Media,Check video audio for speaker/dhol distortion before upload
+media.clipPct,50,number,Media,Flag as muted B-roll when this % of audio is clipped
+media.audioCheckMaxMB,150,number,Media,Only analyse audio for videos up to this size (phone memory)
+media.thumbs,TRUE,toggle,Media,Make instant video thumbnails on the phone
+media.chronoNames,TRUE,toggle,Media,Rename files Event_YYYY-MM-DD_HH-mm-ss_Guest_Original for editors
+media.categories,Candid|BTS|Video Guestbook / Blessing,text,Media,Upload categories guests can pick (separated by |)
+feature.games,TRUE,toggle,Features,Games
+points.upload,5,number,Games,Points per photo/video shared
+points.checkIn,5,number,Games,Points for the team when a guest is checked in (QR)
+points.onTime,5,number,Games,Extra points when checked in before the event start time
+engage.promptsEn,Share a photo with the couple|Share your outfit of the day|Capture a candid laugh|Share a picture with your family|Find someone new and take a selfie,text,Engagement,"Daily prompts (English, separated by |)"
+engage.promptsNe,दुलाहा-दुलहीसँगको फोटो बाँड्नुहोस्|आजको पहिरनको फोटो बाँड्नुहोस्|हाँसेको क्षण कैद गर्नुहोस्|परिवारसँगको फोटो बाँड्नुहोस्|नयाँ मान्छेसँग सेल्फी लिनुहोस्,text,Engagement,"Daily prompts (Nepali, separated by |)"
+auth.phone,TRUE,toggle,Sign-in,Allow sign-in with phone number (+ invite code or birth date)
+auth.google,FALSE,toggle,Sign-in,"Allow ""Sign in with Google"""
+auth.googleClientId,,text,Sign-in,"Google OAuth Web Client ID (free, from Google Cloud console)"
+contact.channels,"whatsapp,sms,email",text,Sign-in,"Contact choices offered to guests (whatsapp, sms, email)"
+contact.requireEmail,FALSE,toggle,Sign-in,Require an email address (off = phone is enough)
+feature.venues,TRUE,toggle,Features,Venue choice + Google Maps navigation
+feature.installApp,TRUE,toggle,Features,"Offer ""Install app"" button"
+feature.elderMode,TRUE,toggle,Features,Elder Mode: A+ button for big text and only the essentials
+app.helpPhone,,text,General,Help phone number shown as a big call button in Elder Mode
+data.softDelete,TRUE,toggle,Data,Guest deletes only hide items (nothing is really deleted). Admin only.
+log.activity,TRUE,toggle,Data,Record guest activity to a Drive log (silent)
+feature.invites,TRUE,toggle,Features,Guests can create a PDF invitation (admin approves)
+invite.autoApprove,FALSE,toggle,Invitation,Approve invitation requests automatically
+invite.titleEn,You are invited to our Brahma Bibaha,text,Invitation,Invitation heading (English)
+invite.titleNe,हाम्रो ब्रह्म विवाहमा हार्दिक निमन्त्रणा,text,Invitation,Invitation heading (Nepali)
+feature.nudges,TRUE,toggle,Features,Top banner with personal things to do
+feature.gifts,TRUE,toggle,Features,Digital gift / salami page (QR images from Drive folder Wedding/Gift QR)
+gift.currency,NPR,text,Gifts,Default currency shown to guests
+gift.showAmounts,FALSE,toggle,Gifts,Show gift amounts to admin dashboard only (never to guests)
+feature.sideThemes,TRUE,toggle,Features,Bride/Groom side colour themes
+feature.attended,TRUE,toggle,Features,"After events, guests can tick which functions they actually attended"
+thanks.tplGift,Namaste {name} 🙏 Thank you so much for your {gift} at our {event}. Your love and blessings mean the world to us. — {couple},text,Thank-you,Thank-you template when a gift was given ({name} {gift} {event} {relation} {couple})
+thanks.tplPresence,Namaste {name} 🙏 Thank you for being with us at {event}. Having you there made it truly special. — {couple},text,Thank-you,Thank-you template for presence only
+thanks.tplNe,"नमस्ते {name} 🙏 {event} मा तपाईंको माया, आशिर्वाद र {gift} को लागि हार्दिक धन्यवाद। — {couple}",text,Thank-you,Nepali thank-you template
+theme.primary,#a3172b,color,Theme,Primary color (sindoor crimson)
+theme.accent,#e3a018,color,Theme,Accent color (marigold)
+theme.brideColor,#e8a317,color,Theme,Bride side tag color
+theme.groomColor,#7a1f3d,color,Theme,Groom side tag color
+theme.bridePrimary,#c2185b,color,Theme,Bride side theme (Gulabi Marigold) - primary
+theme.brideAccent,#f4a300,color,Theme,Bride side theme (Gulabi Marigold) - accent
+theme.groomPrimary,#0f5c63,color,Theme,Groom side theme (Royal Peacock) - primary
+theme.groomAccent,#c9a227,color,Theme,Groom side theme (Royal Peacock) - accent
+theme.brideFamilyPrimary,,color,Theme,Optional: Bride family group primary (blank = bride side theme)
+theme.brideFamilyAccent,,color,Theme,Optional: Bride family group accent (blank = side accent)
+theme.groomFamilyPrimary,,color,Theme,Optional: Groom family group primary (blank = groom side theme)
+theme.groomFamilyAccent,,color,Theme,Optional: Groom family group accent (blank = side accent)
+theme.friendPrimary,,color,Theme,Optional: Friends group primary (blank = side theme)
+theme.friendAccent,,color,Theme,Optional: Friends group accent (blank = side accent)
+theme.preset,classic,"select:classic,royal,garden,midnight,blush,heritage",Theme,Background mood for every page
+freeze.on,FALSE,toggle,Phones down,"Freeze games, uploads and leaderboard now (schedule, pass and invite stay open)"
+freeze.until,,datetime,Phones down,Auto-unfreeze at this time (blank = until switched off)
+freeze.windows,,text,Phones down,"Scheduled freezes: start>end;start>end (ISO times), e.g. 2026-02-14T10:00>2026-02-14T11:30"
+freeze.messageEn,Phones down! The Kanyadaan is starting. We'll reopen the games at the reception!,text,Phones down,Banner while frozen (English)
+freeze.messageNe,फोन राख्नुहोस्! कन्यादान सुरु हुँदैछ। खेलहरू रिसेप्सनमा फेरि खुल्नेछन्!,text,Phones down,Banner while frozen (Nepali)

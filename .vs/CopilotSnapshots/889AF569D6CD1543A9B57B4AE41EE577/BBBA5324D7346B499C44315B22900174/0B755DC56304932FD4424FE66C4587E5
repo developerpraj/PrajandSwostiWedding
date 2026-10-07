@@ -1,0 +1,203 @@
+﻿// Language system: 'en' | 'ne' | 'mix' (50% Nepali + 50% English, shown side by side)
+(function () {
+  const D = {
+    'nav.home': ['Home', 'गृहपृष्ठ'],
+    'nav.register': ['Register', 'दर्ता'],
+    'nav.pass': ['My Pass', 'मेरो पास'],
+    'nav.memorial': ['In Memory of Mom', 'आमाको सम्झनामा'],
+    'lang.en': ['English', 'English'],
+    'lang.ne': ['नेपाली', 'नेपाली'],
+    'lang.mix': ['नेपाली + English', 'नेपाली + English'],
+
+    'common.loading': ['Loading…', 'लोड हुँदैछ…'],
+    'common.error': ['Something went wrong', 'केही समस्या भयो'],
+    'common.invalidLink': ['Please open your personal invitation link.', 'कृपया आफ्नो व्यक्तिगत निमन्त्रणा लिंक खोल्नुहोस्।'],
+    'common.save': ['Save', 'सेभ गर्नुहोस्'],
+
+    'home.welcome': ['Welcome', 'स्वागत छ'],
+    'home.title': ['We are getting married', 'हाम्रो शुभविवाह'],
+    'home.daysToGo': ['days to go', 'दिन बाँकी'],
+    'home.registerCta': ['Register your attendance', 'आफ्नो उपस्थिति दर्ता गर्नुहोस्'],
+    'home.passCta': ['View my guest pass', 'मेरो अतिथि पास हेर्नुहोस्'],
+    'home.memorialCard': ['In loving memory of our Mom — light a diya and share a memory', 'हाम्री आमाको मायालु सम्झनामा — एउटा दियो बाल्नुहोस् र सम्झना बाँड्नुहोस्'],
+    'home.liveNow': ["Happening now", 'अहिले भइरहेको'],
+
+    'reg.title': ['Guest Registration', 'अतिथि दर्ता'],
+    'reg.intro': ['Please fill in your details. All registered guests must complete this form.', 'कृपया आफ्नो विवरण भर्नुहोस्। सबै अतिथिले यो फारम भर्नुपर्नेछ।'],
+    'reg.name': ['Full name (English)', 'पूरा नाम (अंग्रेजीमा)'],
+    'reg.nameNe': ['Full name (Nepali)', 'पूरा नाम (नेपालीमा)'],
+    'reg.phone': ['Phone / WhatsApp', 'फोन / ह्वाट्सएप'],
+    'reg.email': ['Email', 'इमेल'],
+    'reg.dob': ['Date of birth', 'जन्म मिति'],
+    'reg.dobHelp': ['Used only for age verification (drinking band). Never shown to other guests.', 'उमेर प्रमाणीकरणका लागि मात्र। अरू अतिथिलाई देखाइँदैन।'],
+    'reg.side': ['You are from', 'तपाईं कुन पक्षबाट'],
+    'side.Bride': ["Bride's side", 'दुलहीपक्ष'],
+    'side.Groom': ["Groom's side", 'दुलाहापक्ष'],
+    'side.Both': ['Both', 'दुवै'],
+    'reg.relation': ['Relation (e.g., Mama, Friend)', 'नाता (जस्तै: मामा, साथी)'],
+    'reg.relationNe': ['Relation in Nepali (optional)', 'नाता नेपालीमा (ऐच्छिक)'],
+    'reg.status': ['Will you attend?', 'के तपाईं आउनुहुन्छ?'],
+    'status.Attending': ['Yes, attending', 'हो, आउँछु'],
+    'status.Not attending': ['Sorry, cannot attend', 'माफ गर्नुहोस्, आउन सक्दिनँ'],
+    'status.Maybe': ['Maybe', 'सायद'],
+    'reg.count': ['Number of people (including you)', 'जम्मा व्यक्ति संख्या (तपाईं सहित)'],
+    'reg.max': ['Maximum', 'अधिकतम'],
+    'reg.meal': ['Meal preference', 'खानाको रोजाइ'],
+    'meal.Veg': ['Vegetarian', 'शाकाहारी'],
+    'meal.Non-veg': ['Non-vegetarian', 'मांसाहारी'],
+    'meal.Vegan': ['Vegan', 'भिगन'],
+    'meal.Jain': ['Jain', 'जैन'],
+    'reg.allergies': ['Allergies / dietary notes', 'एलर्जी / खाना सम्बन्धी नोट'],
+    'reg.arrival': ['Arrival date (if travelling)', 'आगमन मिति (यात्रा गर्दै हुनुहुन्छ भने)'],
+    'reg.departure': ['Departure date', 'प्रस्थान मिति'],
+    'reg.nonDrinker': ["I don't drink alcohol", 'म मदिरा सेवन गर्दिनँ'],
+    'reg.events': ['Which events will you attend?', 'कुन कुन कार्यक्रममा आउनुहुन्छ?'],
+    'rsvp.Yes': ['Yes', 'हो'],
+    'rsvp.No': ['No', 'होइन'],
+    'rsvp.Maybe': ['Maybe', 'सायद'],
+    'reg.locked': ['Revealed soon', 'छिट्टै खुल्नेछ'],
+    'reg.consent': ['I confirm these details are correct.', 'म यी विवरण सही छन् भनी पुष्टि गर्छु।'],
+    'reg.submit': ['Submit registration', 'दर्ता पेश गर्नुहोस्'],
+    'reg.saved': ['Thank you! Your registration is saved.', 'धन्यवाद! तपाईंको दर्ता सुरक्षित भयो।'],
+    'reg.closed': ['Registration is currently closed.', 'दर्ता हाल बन्द छ।'],
+
+    'acc.title': ['Accommodation', 'बसोबास व्यवस्था'],
+    'acc.intro': ['You have been offered accommodation. Let us know what you need.', 'तपाईंलाई बसोबासको सुविधा दिइएको छ। आवश्यकता बताउनुहोस्।'],
+    'acc.nights': ['Number of nights', 'रात संख्या'],
+    'acc.people': ['Number of people', 'व्यक्ति संख्या'],
+    'acc.needs': ['Special needs', 'विशेष आवश्यकता'],
+    'acc.submit': ['Request accommodation', 'बसोबास अनुरोध गर्नुहोस्'],
+    'acc.saved': ['Accommodation request saved.', 'बसोबास अनुरोध सुरक्षित भयो।'],
+    'acc.status': ['Status', 'स्थिति'],
+
+    'pass.title': ['Guest Pass', 'अतिथि पास'],
+    'pass.relation': ['Relation', 'नाता'],
+    'pass.people': ['People', 'व्यक्ति'],
+    'pass.table': ['Table', 'टेबल'],
+    'pass.room': ['Room', 'कोठा'],
+    'pass.band': ['Drink band', 'पेय ब्यान्ड'],
+    'pass.showAtEntry': ['Show this QR at the entrance', 'प्रवेशद्वारमा यो QR देखाउनुहोस्'],
+    'pass.notRegistered': ['You have not registered yet.', 'तपाईंले अझै दर्ता गर्नुभएको छैन।'],
+    'band.green': ['ID verified — may be served', 'परिचयपत्र प्रमाणित — सेवा गर्न सकिन्छ'],
+    'band.yellow': ['Show ID at the bar', 'बारमा परिचयपत्र देखाउनुहोस्'],
+    'band.red': ['Not served alcohol', 'मदिरा दिइने छैन'],
+    'band.blue': ['Non-drinker — mocktails 🍹', 'मदिरा नपिउने — मकटेल 🍹'],
+
+    'mem.title': ['In Loving Memory of Our Mom', 'हाम्री प्यारी आमाको सम्झनामा'],
+    'mem.lightDiya': ['Light a diya', 'दियो बाल्नुहोस्'],
+    'mem.diyasLit': ['diyas lit with love', 'दियो मायाले बालिएका'],
+    'mem.blessing': ['A blessing or prayer (optional)', 'आशीर्वाद वा प्रार्थना (ऐच्छिक)'],
+    'mem.shareTitle': ['Share a memory of her', 'उहाँको एउटा सम्झना बाँड्नुहोस्'],
+    'mem.prompt': ['Her best advice? A dish of hers you miss? A moment she made you smile?', 'उहाँको उत्तम सल्लाह? उहाँले बनाएको मनपर्ने परिकार? उहाँले हँसाएको क्षण?'],
+    'mem.yourName': ['Your name', 'तपाईंको नाम'],
+    'mem.relation': ['How you knew her', 'उहाँलाई कसरी चिन्नुहुन्थ्यो'],
+    'mem.memory': ['Your memory', 'तपाईंको सम्झना'],
+    'mem.private': ['Keep private (only the couple will see it)', 'निजी राख्नुहोस् (दुलाहा-दुलहीले मात्र देख्नेछन्)'],
+    'mem.submit': ['Share memory', 'सम्झना बाँड्नुहोस्'],
+    'mem.thanks': ['Thank you for sharing 🙏', 'बाँड्नुभएकोमा धन्यवाद 🙏'],
+    'mem.pending': ['It will appear after review.', 'समीक्षापछि देखिनेछ।'],
+    'mem.wall': ['Memories', 'सम्झनाहरू'],
+
+    'nav.photos': ['Photos', 'फोटो'],
+    'nav.games': ['Games', 'खेल'],
+    'who.label': ['Using as', 'प्रयोगकर्ता'],
+    'rel.to': ['You are related to', 'तपाईं कोसँग नाता पर्नुहुन्छ'],
+    'rel.Bride': ['Bride', 'दुलही'],
+    'rel.Groom': ['Groom', 'दुलाहा'],
+    "rel.Bride's family": ["Bride's family", 'दुलहीको परिवार'],
+    "rel.Groom's family": ["Groom's family", 'दुलाहाको परिवार'],
+    'rel.Both': ['Both families', 'दुवै परिवार'],
+    'rel.type': ['Relationship type', 'नाताको प्रकार'],
+    'type.Family': ['Family / relative', 'परिवार / आफन्त'],
+    'type.Friend': ['Friend', 'साथी'],
+    'type.Colleague': ['Colleague', 'सहकर्मी'],
+    'type.Neighbor': ['Neighbor', 'छिमेकी'],
+    'type.Other': ['Other', 'अन्य'],
+    'fam.title': ['Family members coming with you', 'तपाईंसँग आउने परिवारका सदस्य'],
+    'fam.intro': ['Add each relative once — the app will remember everyone on this phone.', 'हरेक आफन्त एक पटक थप्नुहोस् — यो फोनले सबैलाई सम्झिनेछ।'],
+    'fam.add': ['Add family member', 'परिवार सदस्य थप्नुहोस्'],
+    'fam.remove': ['Remove', 'हटाउनुहोस्'],
+    'fam.attending': ['Attending', 'आउँदै'],
+    'remember.back': ['Welcome back', 'फेरि स्वागत छ'],
+    'photo.title': ['Share Photos & Videos', 'फोटो र भिडियो बाँड्नुहोस्'],
+    'photo.intro': ['Pick photos or videos — they upload automatically and everyone can enjoy them.', 'फोटो वा भिडियो छान्नुहोस् — आफैं अपलोड हुन्छ र सबैले हेर्न सक्छन्।'],
+    'photo.pick': ['📷 Add photos / videos', '📷 फोटो / भिडियो थप्नुहोस्'],
+    'photo.camera': ['📸 Take a photo', '📸 फोटो खिच्नुहोस्'],
+    'photo.yourName': ['Your name', 'तपाईंको नाम'],
+    'photo.event': ['Which event?', 'कुन कार्यक्रम?'],
+    'photo.uploading': ['Uploading', 'अपलोड हुँदैछ'],
+    'photo.done': ['Shared! Thank you 💛', 'बाँडियो! धन्यवाद 💛'],
+    'photo.pending': ['Uploaded — visible after review', 'अपलोड भयो — समीक्षापछि देखिनेछ'],
+    'photo.failed': ['Upload failed — tap to retry', 'अपलोड असफल — फेरि प्रयास गर्नुहोस्'],
+    'photo.gallery': ['Everyone\'s photos', 'सबैका फोटो'],
+    'photo.mine': ['Mine', 'मेरो'],
+    'photo.all': ['All', 'सबै'],
+    'photo.download': ['Download', 'डाउनलोड'],
+    'photo.delete': ['Remove my upload', 'मेरो अपलोड हटाउनुहोस्'],
+    'photo.empty': ['No photos yet — be the first to share!', 'अहिलेसम्म फोटो छैन — पहिलो बन्नुहोस्!'],
+    'photo.by': ['by', 'द्वारा'],
+    'photo.qrTitle': ['Scan to share your photos', 'फोटो बाँड्न स्क्यान गर्नुहोस्'],
+    'game.title': ['Games & Challenges', 'खेल र चुनौती'],
+    'game.intro': ['Games picked for you based on your relation to the couple.', 'दुलाहा-दुलहीसँगको नाताअनुसार तपाईंका लागि छानिएका खेल।'],
+    'game.correct': ['Correct! 🎉', 'सही! 🎉'],
+    'game.wrong': ['Not quite!', 'मिलेन!'],
+    'game.points': ['points', 'अंक'],
+    'game.team': ['Team battle', 'टोली प्रतिस्पर्धा'],
+    'game.top': ['Top players', 'उत्कृष्ट खेलाडी'],
+    'game.none': ['New games coming soon!', 'नयाँ खेल चाँडै आउँदैछ!'],
+    'game.registerFirst': ['Register first to play.', 'खेल्न पहिले दर्ता गर्नुहोस्।'],
+    'home.next': ['Next up', 'अर्को कार्यक्रम'],
+    'home.prompt': ["Today's challenge", 'आजको चुनौती'],
+    'home.myPoints': ['Your points', 'तपाईंको अंक'],
+    'home.latest': ['Latest moments', 'पछिल्ला क्षणहरू'],
+    'home.seeAll': ['See all', 'सबै हेर्नुहोस्'],
+    'home.share': ['Share a photo', 'फोटो बाँड्नुहोस्'],
+    'home.play': ['Play', 'खेल्नुहोस्'],
+    'home.surprises': ['surprise events coming', 'आश्चर्य कार्यक्रम आउँदैछ'],
+    'closed.title': [
+    'closed.text': ['The wedding is over and this app is now closed. With love and gratitude.', 'विवाह सम्पन्न भयो र यो एप अब बन्द भएको छ। माया र आभारसहित।'],
+
+    'pwa.install': ['Install app', 'एप इन्स्टल गर्नुहोस्'],
+    'pwa.title': ['Add to your home screen', 'होम स्क्रिनमा राख्नुहोस्'],
+    'pwa.iosStep1': ['Tap the Share button (□↑) at the bottom of Safari', 'Safari को तल रहेको Share बटन (□↑) थिच्नुहोस्'],
+    'pwa.iosStep2': ['Scroll and choose "Add to Home Screen"', 'तल सरेर "Add to Home Screen" छान्नुहोस्'],
+    'pwa.iosStep3': ['Tap "Add" — the app icon appears on your home screen', '"Add" थिच्नुहोस् — एपको आइकन होम स्क्रिनमा देखिनेछ'],
+    'pwa.androidStep1': ['Tap the menu (⋮) in the top corner of Chrome', 'Chrome को माथिल्लो कुनामा रहेको मेनु (⋮) थिच्नुहोस्'],
+    'pwa.androidStep2': ['Choose "Install app" or "Add to Home screen"', '"Install app" वा "Add to Home screen" छान्नुहोस्'],
+    'pwa.inApp': ['You opened this inside another app (e.g., WhatsApp).', 'तपाईंले यो अर्को एप (जस्तै: WhatsApp) भित्र खोल्नुभएको छ।'],
+    'pwa.openSafari': ['Copy the link and open it in Safari, then tap Install again.', 'लिंक कपी गरी Safari मा खोल्नुहोस्, अनि फेरि Install थिच्नुहोस्।'],
+    'pwa.openChrome': ['Copy the link and open it in Chrome, then tap Install again.', 'लिंक कपी गरी Chrome मा खोल्नुहोस्, अनि फेरि Install थिच्नुहोस्।'],
+    'pwa.copyLink': ['Copy link', 'लिंक कपी गर्नुहोस्'],
+    'pwa.close': ['Close', 'बन्द गर्नुहोस्']
+  };
+
+  const KEY = 'lang';
+  function mode() {
+    return localStorage.getItem(KEY) || window.__defaultLang || 'mix';
+  }
+  function bi(en, ne) {
+    en = en == null ? '' : String(en);
+    ne = ne == null ? '' : String(ne);
+    const m = mode();
+    if (m === 'en') return en || ne;
+    if (m === 'ne') return ne || en;
+    if (!en) return ne;
+    if (!ne || ne === en) return en;
+    return ne + ' · ' + en;
+  }
+  function t(key) {
+    const p = D[key];
+    return p ? bi(p[0], p[1]) : key;
+  }
+  function apply(root) {
+    (root || document).querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+    (root || document).querySelectorAll('[data-i18n-ph]').forEach(el => { el.placeholder = t(el.dataset.i18nPh); });
+    document.documentElement.lang = mode() === 'en' ? 'en' : 'ne';
+  }
+  function set(m) {
+    localStorage.setItem(KEY, m);
+    apply();
+    document.dispatchEvent(new CustomEvent('langchange'));
+  }
+  window.I18N = { t: t, bi: bi, mode: mode, set: set, apply: apply };
+})();

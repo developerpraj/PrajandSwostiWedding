@@ -1,0 +1,267 @@
+﻿/**
+ * Wedding App backend - Google Apps Script (free).
+ * In Apps Script, paste this file as Code.gs.
+ *
+ * Setup:
+ *  1. Create a Google Sheet (personal account) -> Extensions -> Apps Script.
+ *  2. Paste this file and save.
+ *  3. Run `setup` once (authorize). It creates/migrates all tabs, default settings,
+ *     Drive folders and a default admin passcode. Safe to run again after updates.
+ *  4. Project Settings -> Script Properties -> change ADMIN_PASSCODE.
+ *  5. Deploy -> New deployment -> Web app -> Execute as: Me, Access: Anyone.
+ *  6. Copy the /exec URL into js/config.js (API_URL).
+ */
+
+const SHEETS = {
+  Settings: ['Key', 'Value', 'Type', 'Group', 'Description'],
+  Guests: ['GuestId', 'Name', 'NameNe', 'Family', 'Side', 'Relation', 'RelationNe', 'Groups', 'Phone', 'Email',
+    'DOB', 'Age', 'NonDrinker', 'AgeVerified', 'AdmitCount', 'AttendingCount', 'Status', 'Meal', 'Allergies',
+    'Arrival', 'Departure', 'AccommodationEligible', 'Table', 'InviteSent', 'InviteOpened', 'Registered',
+    'RegisteredAt', 'CheckedIn', 'CheckedInAt', 'Notes', 'RelationTo', 'RelationType'],
+  Members: ['MemberId', 'GuestId', 'Name', 'NameNe', 'RelationTo', 'RelationType', 'Relation', 'RelationNe', 'DOB',
+    'NonDrinker', 'AgeVerified', 'Attending', 'IsPrimary', 'CheckedIn', 'CheckedInAt', 'CreatedAt'],
+  Events: ['EventId', 'NameEn', 'NameNe', 'DateTime', 'Venue', 'MapLink', 'DressCode', 'RevealStyle', 'UnlockAt',
+    'Groups', 'Order', 'Visible'],
+  EventRsvp: ['GuestId', 'EventId', 'Response', 'Count', 'UpdatedAt'],
+  Rooms: ['RoomId', 'Name', 'Location', 'Capacity', 'CheckIn', 'CheckOut', 'Notes'],
+  Accommodation: ['RequestId', 'GuestId', 'Nights', 'People', 'Needs', 'Status', 'RoomId', 'UpdatedAt'],
+  Media: ['MediaId', 'GuestId', 'MemberId', 'Name', 'Side', 'EventId', 'DriveFileId', 'Type', 'MimeType', 'FileName',
+    'Status', 'Timestamp'],
+  Games: ['GameId', 'Type', 'TitleEn', 'TitleNe', 'QuestionEn', 'QuestionNe', 'OptionsEn', 'OptionsNe', 'Answer',
+    'Points', 'Groups', 'Active', 'Order'],
+  Scores: ['GuestId', 'MemberId', 'Name', 'Side', 'GameId', 'Correct', 'Points', 'Timestamp'],
+  Live: ['Timestamp', 'MessageEn', 'MessageNe', 'Active'],
+  MomProfile: ['Key', 'Value'],
+  MomMemories: ['MemoryId', 'GuestId', 'Name', 'Relation', 'Type', 'Text', 'DriveFileId', 'Status', 'IsPrivate', 'Timestamp'],
+  MomDiyas: ['GuestId', 'Name', 'Blessing', 'Timestamp'],
+  AuditLog: ['Timestamp', 'Action', 'Details']
+};
+
+const RELATION_TO = ['Bride', 'Groom', "Bride's family", "Groom's family", 'Both'];
+const RELATION_TYPES = ['Family', 'Friend', 'Colleague', 'Neighbor', 'Other'];
+
+const DEFAULT_SETTINGS = [
+  ['lang.default', 'mix', 'select:en,ne,mix', 'General', 'Default language'],
+  ['couple.brideEn', 'Bride', 'text', 'General', 'Bride name (English)'],
+  ['couple.brideNe', 'दुलही', 'text', 'General', 'Bride name (Nepali)'],
+  ['couple.groomEn', 'Groom', 'text', 'General', 'Groom name (English)'],
+  ['couple.groomNe', 'दुलाहा', 'text', 'General', 'Groom name (Nepali)'],
+  ['wedding.date', '2026-12-12T10:00', 'datetime', 'General', 'Main ceremony date/time'],
+  ['wedding.endDate', '2026-12-15T23:59', 'datetime', 'General', 'App turns OFF automatically after this date/time'],
+  ['app.keepMemorialAfterEnd', 'TRUE', 'toggle', 'General', 'Keep memorial page open after the end date'],
+  ['feature.registration', 'TRUE', 'toggle', 'Features', 'Guest registration'],
+  ['registration.open', 'TRUE', 'toggle', 'Registration', 'Registration open'],
+  ['feature.accommodation', 'TRUE', 'toggle', 'Features', 'Accommodation requests'],
+  ['accommodation.open', 'TRUE', 'toggle', 'Accommodation', 'Accept accommodation requests'],
+  ['feature.drinkBand', 'TRUE', 'toggle', 'Features', 'Age verification & drinking band'],
+  ['drink.legalAge', '18', 'number', 'Drinking', 'Legal drinking age'],
+  ['feature.nameTags', 'TRUE', 'toggle', 'Features', 'Name tags'],
+  ['feature.live', 'TRUE', 'toggle', 'Features', "What's happening now banner"],
+  ['feature.memorial', 'TRUE', 'toggle', 'Features', 'Memorial for Mom'],
+  ['memorial.moderation', 'TRUE', 'toggle', 'Memorial', 'Review memories before showing'],
+  ['feature.media', 'TRUE', 'toggle', 'Features', 'Photo & video sharing'],
+  ['media.moderation', 'FALSE', 'toggle', 'Media', 'Review uploads before others can see them'],
+  ['media.allowVisitors', 'TRUE', 'toggle', 'Media', 'Allow uploads from venue QR without personal link'],
+  ['media.maxSizeMB', '500', 'number', 'Media', 'Max file size (MB)'],
+  ['feature.games', 'TRUE', 'toggle', 'Features', 'Games'],
+  ['points.upload', '5', 'number', 'Games', 'Points per photo/video shared'],
+  ['engage.promptsEn', 'Share a photo with the couple|Share your outfit of the day|Capture a candid laugh|Share a picture with your family|Find someone new and take a selfie', 'text', 'Engagement', 'Daily prompts (English, separated by |)'],
+  ['engage.promptsNe', 'दुलाहा-दुलहीसँगको फोटो बाँड्नुहोस्|आजको पहिरनको फोटो बाँड्नुहोस्|हाँसेको क्षण कैद गर्नुहोस्|परिवारसँगको फोटो बाँड्नुहोस्|नयाँ मान्छेसँग सेल्फी लिनुहोस्', 'text', 'Engagement', 'Daily prompts (Nepali, separated by |)'],
+  ['feature.installApp', 'TRUE', 'toggle', 'Features', 'Show "Install app" button (iOS & Android)'],
+  ['feature.sideThemes', 'TRUE', 'toggle', 'Features', 'Auto theme by bride/groom side'],
+  ['theme.primary', '#b3122e', 'color', 'Theme', 'Primary color'],
+  ['theme.accent', '#e8a317', 'color', 'Theme', 'Accent color'],
+  ['theme.brideColor', '#e8a317', 'color', 'Theme', 'Bride side tag color'],
+  ['theme.groomColor', '#7a1f3d', 'color', 'Theme', 'Groom side tag color'],
+  ['theme.bridePrimary', '#c2185b', 'color', 'Theme', 'Bride side theme (Gulabi Marigold) - primary'],
+  ['theme.brideAccent', '#f4a300', 'color', 'Theme', 'Bride side theme (Gulabi Marigold) - accent'],
+  ['theme.groomPrimary', '#0f5c63', 'color', 'Theme', 'Groom side theme (Royal Peacock) - primary'],
+  ['theme.groomAccent', '#d4a017', 'color', 'Theme', 'Groom side theme (Royal Peacock) - accent']
+];
+
+const DEFAULT_MOM = [
+  ['nameEn', 'Mom'], ['nameNe', 'आमा'], ['years', ''], ['photoUrl', ''],
+  ['dedicationEn', 'Your love and blessings are with us in every step.'],
+  ['dedicationNe', 'तपाईंको माया र आशीर्वाद हाम्रो हरेक पाइलामा साथ छ।'],
+  ['quoteEn', ''], ['quoteNe', '']
+];
+
+const SAMPLE_GAMES = [
+  ['G1', 'quiz', 'How well do you know the couple?', 'दुलाहा-दुलहीलाई कति चिन्नुहुन्छ?', 'Where did the couple first meet?', 'दुलाहा-दुलही पहिलो पटक कहाँ भेटे?',
+    'College|Office|Family function|Online', 'कलेज|अफिस|पारिवारिक कार्यक्रम|अनलाइन', '0', '10', 'All', 'TRUE', '1'],
+  ['G2', 'quiz', "Bride's side special", 'दुलहीपक्ष विशेष', "What is the bride's favorite food?", 'दुलहीको मनपर्ने खाना के हो?',
+    'Momo|Dal Bhat|Sel Roti|Pani Puri', 'मःम|दालभात|सेलरोटी|पानीपुरी', '0', '10', 'bride', 'TRUE', '2'],
+  ['G3', 'quiz', "Groom's side special", 'दुलाहापक्ष विशेष', "What is the groom's favorite sport?", 'दुलाहाको मनपर्ने खेल कुन हो?',
+    'Football|Cricket|Basketball|Volleyball', 'फुटबल|क्रिकेट|बास्केटबल|भलिबल', '1', '10', 'groom', 'TRUE', '3']
+];
+
+// ---------- Entry points ----------
+
+function doGet() {
+  return json_({ ok: true, message: 'Wedding API running' });
+}
+
+function doPost(e) {
+  try {
+    const req = JSON.parse(e.postData.contents || '{}');
+    const action = req.action || '';
+    const data = req.data || {};
+    if (action.indexOf('admin.') === 0) {
+      if (!isAdmin_(req.adminKey)) return json_({ ok: false, error: 'unauthorized' });
+      const fn = ADMIN_ACTIONS[action];
+      if (!fn) return json_({ ok: false, error: 'unknown action' });
+      return json_({ ok: true, data: fn(data) });
+    }
+    const fn = PUBLIC_ACTIONS[action];
+    if (!fn) return json_({ ok: false, error: 'unknown action' });
+    if (action !== 'getConfig' && isClosed_()) {
+      const memorialAction = ['getMemorial', 'lightDiya', 'submitMemory'].indexOf(action) >= 0;
+      if (!(memorialAction && settings_()['app.keepMemorialAfterEnd'] === 'TRUE')) return json_({ ok: false, error: 'closed' });
+    }
+    return json_({ ok: true, data: fn(data) });
+  } catch (err) {
+    return json_({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+const PUBLIC_ACTIONS = {
+  getConfig: getConfig_,
+  getHome: getHome_,
+  getGuest: getGuest_,
+  register: register_,
+  requestAccommodation: requestAccommodation_,
+  getPass: getPass_,
+  getLive: getLive_,
+  startUpload: startUpload_,
+  finishUpload: finishUpload_,
+  getGallery: getGallery_,
+  deleteMedia: deleteMedia_,
+  getGames: getGames_,
+  submitAnswer: submitAnswer_,
+  getLeaderboard: () => publicLeaderboard_(leaderboard_()),
+  getMemorial: getMemorial_,
+  lightDiya: lightDiya_,
+  submitMemory: submitMemory_
+};
+
+const ADMIN_ACTIONS = {
+  'admin.login': () => ({ valid: true }),
+  'admin.stats': adminStats_,
+  'admin.guests': () => table_('Guests').map(withDerived_),
+  'admin.people': adminPeople_,
+  'admin.saveGuest': adminSaveGuest_,
+  'admin.importGuests': adminImportGuests_,
+  'admin.setAccommodationEligible': d => updateBy_('Guests', 'GuestId', d.guestId, { AccommodationEligible: bool_(d.value) ? 'TRUE' : 'FALSE' }),
+  'admin.rooms': () => ({ rooms: table_('Rooms'), requests: table_('Accommodation') }),
+  'admin.saveRoom': adminSaveRoom_,
+  'admin.assignRoom': adminAssignRoom_,
+  'admin.settings': () => table_('Settings'),
+  'admin.saveSetting': d => upsert_('Settings', 'Key', d.key, { Key: d.key, Value: d.value }),
+  'admin.checkIn': d => updateBy_('Guests', 'GuestId', d.guestId, { CheckedIn: 'TRUE', CheckedInAt: now_() }),
+  'admin.verifyAge': d => updateBy_('Guests', 'GuestId', d.guestId, { AgeVerified: bool_(d.value) ? 'TRUE' : 'FALSE' }),
+  'admin.verifyMember': d => updateBy_('Members', 'MemberId', d.memberId, { AgeVerified: bool_(d.value) ? 'TRUE' : 'FALSE' }),
+  'admin.checkInMember': d => updateBy_('Members', 'MemberId', d.memberId, { CheckedIn: 'TRUE', CheckedInAt: now_() }),
+  'admin.events': () => table_('Events'),
+  'admin.media': () => table_('Media').reverse(),
+  'admin.moderateMedia': d => updateBy_('Media', 'MediaId', d.mediaId, { Status: d.status }),
+  'admin.games': () => table_('Games'),
+  'admin.saveGame': adminSaveGame_,
+  'admin.postLive': adminPostLive_,
+  'admin.memories': () => table_('MomMemories'),
+  'admin.moderateMemory': d => updateBy_('MomMemories', 'MemoryId', d.memoryId, { Status: d.status }),
+  'admin.saveMom': d => { Object.keys(d).forEach(k => upsert_('MomProfile', 'Key', k, { Key: k, Value: d[k] })); return true; }
+};
+
+// ---------- Setup / migration ----------
+
+function setup() {
+  const ss = SpreadsheetApp.getActive();
+  Object.keys(SHEETS).forEach(name => {
+    let sh = ss.getSheetByName(name);
+    if (!sh) sh = ss.insertSheet(name);
+    if (sh.getLastRow() === 0) {
+      sh.appendRow(SHEETS[name]);
+    } else {
+      const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+      SHEETS[name].filter(c => head.indexOf(c) < 0).forEach(c => sh.getRange(1, sh.getLastColumn() + 1).setValue(c));
+    }
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, sh.getLastColumn()).setFontWeight('bold');
+  });
+  const existing = table_('Settings').map(s => s.Key);
+  DEFAULT_SETTINGS.forEach(r => { if (existing.indexOf(r[0]) < 0) sheet_('Settings').appendRow(r); });
+  const momKeys = table_('MomProfile').map(m => m.Key);
+  DEFAULT_MOM.forEach(r => { if (momKeys.indexOf(r[0]) < 0) sheet_('MomProfile').appendRow(r); });
+  if (table_('Games').length === 0) SAMPLE_GAMES.forEach(r => sheet_('Games').appendRow(r));
+
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('ADMIN_PASSCODE')) props.setProperty('ADMIN_PASSCODE', 'change-me-now');
+  if (!props.getProperty('ROOT_FOLDER_ID')) {
+    const root = DriveApp.createFolder('Wedding');
+    ['Invites', 'Mom'].forEach(n => root.createFolder(n));
+    props.setProperty('ROOT_FOLDER_ID', root.getId());
+  }
+  uploadsFolder_();
+  const def = ss.getSheetByName('Sheet1');
+  if (def && ss.getSheets().length > 1 && def.getLastRow() === 0) ss.deleteSheet(def);
+  CacheService.getScriptCache().remove('settings');
+}
+
+// ---------- Identity & relationship ----------
+
+function sideOf_(relationTo) {
+  const r = String(relationTo || '');
+  if (/^bride/i.test(r)) return 'Bride';
+  if (/^groom/i.test(r)) return 'Groom';
+  return r ? 'Both' : '';
+}
+
+/** Groups used to target Events / Games: all, bride, groom, bride-family, groom-friend, family, friend, + admin Groups. */
+function groupsFor_(g, m) {
+  const out = ['all'];
+  const relTo = (m && m.RelationTo) || (g && g.RelationTo) || '';
+  const side = sideOf_(relTo) || (g && g.Side) || '';
+  const type = String((m && m.RelationType) || (g && g.RelationType) || '').toLowerCase();
+  const sides = side === 'Both' ? ['bride', 'groom', 'both'] : side ? [String(side).toLowerCase()] : [];
+  sides.forEach(s => { out.push(s); if (type) out.push(s + '-' + type); });
+  if (type) out.push(type);
+  if (/family/i.test(relTo)) sides.forEach(s => out.push(s + '-family'));
+  String((g && g.Groups) || '').split(',').map(x => x.trim().toLowerCase()).filter(String).forEach(x => out.push(x));
+  return out.filter((x, i) => out.indexOf(x) === i);
+}
+
+function matches_(targetGroups, groups) {
+  const t = String(targetGroups || 'All').split(',').map(x => x.trim().toLowerCase()).filter(String);
+  return !t.length || t.indexOf('all') >= 0 || t.some(x => groups.indexOf(x) >= 0);
+}
+
+function membersOf_(guestId) {
+  return table_('Members').filter(m => m.GuestId === guestId);
+}
+
+/** Resolves the person using the app: guest + member (falls back to primary member). */
+function identity_(d, required) {
+  const g = d.guestId ? tryGuest_(d.guestId) : null;
+  if (!g) {
+    if (required) throw new Error('Invalid guest link');
+    return { guest: null, member: null };
+  }
+  const members = membersOf_(g.GuestId);
+  let m = d.memberId ? members.filter(x => x.MemberId === d.memberId)[0] : null;
+  if (!m) m = members.filter(x => bool_(x.IsPrimary))[0] || null;
+  return { guest: g, member: m };
+}
+
+function personName_(id, d) {
+  if (id.member) return id.member.Name;
+  if (id.guest) return id.guest.Name;
+  return str_(d && d.name).slice(0, 80) || 'Guest';
+}
+
+function personSide_(id, d) {
+  if (id.member && id.member.RelationTo) return sideOf_(id.member.RelationTo);
+  if (id.guest) return id.guest.Side || sideOf_(id.guest.RelationTo);
+  return sideOf_(d && d.relationTo);
+}
+
+//@@PART3@@

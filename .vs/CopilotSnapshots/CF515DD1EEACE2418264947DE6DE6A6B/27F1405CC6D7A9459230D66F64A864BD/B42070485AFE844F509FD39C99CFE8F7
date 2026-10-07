@@ -1,0 +1,36 @@
+﻿/**
+ * Health check: runs hourly (installed by setup). Emails the script owner when something needs attention.
+ * Silent when all is well; at most one email per problem kind per 6 hours.
+ */
+function healthCheck() {
+  const problems = [];
+  try {
+	const quota = MailApp.getRemainingDailyQuota();
+	if (quota < 20) problems.push(['mail', 'Only ' + quota + ' emails left today (registration confirmations will stop).']);
+  } catch (e) { problems.push(['mail', 'Mail quota check failed: ' + e.message]); }
+  try {
+	const since = Date.now() - 3600000;
+	const errs = table_('AuditLog').filter(r => /error/i.test(r.Action) && new Date(r.Timestamp).getTime() >= since);
+	if (errs.length >= 5) problems.push(['errors', errs.length + ' errors in the last hour. Latest: ' + str_(errs[errs.length - 1].Details).slice(0, 300)]);
+  } catch (e) { problems.push(['log', 'AuditLog unreadable: ' + e.message]); }
+  try { rootFolder_().getName(); } catch (e) { problems.push(['drive', 'Wedding Drive folder unreachable: ' + e.message]); }
+  try {
+	const p = PropertiesService.getScriptProperties();
+	if (p.getProperty('GITHUB_TOKEN')) {
+	  const site = (p.getProperty('SITE_URL') || 'https://prajandswosti.com').replace(/\/+$/, '');
+	  const url = site + '/' + (p.getProperty('GITHUB_PATH') || 'live.json');
+	  const res = UrlFetchApp.fetch(url + '?ts=' + Date.now(), { muteHttpExceptions: true });
+	  if (res.getResponseCode() !== 200) problems.push(['live', 'live.json not reachable (' + res.getResponseCode() + ') at ' + url]);
+	}
+  } catch (e) { problems.push(['live', 'live.json check failed: ' + e.message]); }
+
+  const cache = CacheService.getScriptCache();
+  const fresh = problems.filter(p => !cache.get('health_' + p[0]));
+  if (!fresh.length) return problems.length === 0;
+  fresh.forEach(p => cache.put('health_' + p[0], '1', 21600));
+  try {
+	MailApp.sendEmail(Session.getEffectiveUser().getEmail(), 'Wedding app: needs attention',
+	  fresh.map(p => '• ' + p[1]).join('\n') + '\n\nSee docs/DAY_OF.md for what to do.');
+  } catch (e) { /* no quota left */ }
+  return false;
+}

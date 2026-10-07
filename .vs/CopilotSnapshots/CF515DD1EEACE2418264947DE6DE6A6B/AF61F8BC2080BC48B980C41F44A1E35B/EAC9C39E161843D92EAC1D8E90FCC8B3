@@ -1,0 +1,119 @@
+﻿# Handoff note: wedding app (testing and bug-fix work)
+
+Workspace: `C:\Users\eu01242003\OneDrive - State of Minnesota - MN365\Desktop\proj\`
+Shell: PowerShell. IDE: Visual Studio 2026.
+
+There is no git in this folder.
+
+> **Drive backup:** in sync with `Code.gs` (verified with `tools\node\node.exe tools\make-drive-backup.js --check`). Re-run the generator after any schema or default-setting change.
+
+## 1. What the app is
+
+- A static HTML/CSS/vanilla JS front end (no build step) with a Google Apps Script backend (`apps-script/Code.gs`) that stores data in Google Sheets and Drive.
+- **Guest pages:** `index.html`, `register.html`, `signin.html`, `photos.html`, `ceremony.html`, `gift.html`, `games.html`, `pass.html`, `memorial.html`, `slideshow.html`, `whisper.html`.
+- **Admin pages:** `admin/index.html`, `admin/planner.html`, `admin/nametags.html`.
+- **Scripts:** `js/config.js`, `js/api.js`, `js/app.js`, `js/i18n.js`, `js/admin.js`, `js/register.js`, `js/photos.js`, `js/ceremony.js`, `js/gift.js`, `js/games.js`, `js/pass.js`, `js/memorial.js`, `js/planner.js`, `js/nametags.js`, `sw.js`.
+
+### Demo and production modes
+
+- `js/config.js` picks the mode. It honours `?mode=demo` or `?mode=prod` and remembers the choice in localStorage `appMode`. Without that, it defaults to demo on localhost/file URLs and to prod everywhere else.
+- **Demo mode** loads `demo-data/demo-api.js`, an in-browser fake backend. Its data is kept in localStorage `demoDB`, and guest `G001` is signed in automatically. Demo invite codes are `DEMO01` to `DEMO06`.
+- **Production mode** posts to the Apps Script `/exec` URL. `API_URL` in `js/config.js` is still `PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE`.
+- `start-demo.ps1` starts a Python server on port 8080 and opens the app in Chrome.
+
+### Admin passcode
+
+- **Demo:** `demo`. `js/api.js` blocks admin calls unless `sessionStorage.adminKey === 'demo'`.
+- **Production owner:** Script Property `ADMIN_PASSCODE`. `setup()` sets it to `change-me-now`, which must be changed before going live.
+- **Other production admins:** each has their own passcode in the `Admins` sheet (managed from the Team tab).
+- **Roles:** `owner` can do everything. `manager` can do everything except settings, admins and logs. `helper` gets a limited list of actions (see `roleAllows_` in `Code.gs`).
+
+## 2. Features added in this session
+
+### Invite-link revoke and expiry (done and tested)
+
+- **`Code.gs`:**
+  - The `Guests` sheet has two new columns, `LinkRevoked` and `LinkExpires`.
+  - `linkGuard_(g)` blocks revoked or expired guests. It runs in `doPost` for any public action with `data.guestId`, in `resolveCode_` and in `signIn_`.
+  - The new admin action `admin.linkControl` takes `{guestId, revoked?, expires?, newCode?}`. Managers and owners can use it; helpers cannot.
+- **`js/admin.js` (household panel):** shows the link status, a "Turn link off/on" toggle, "New link (old stops working)", and an expiry date with Save.
+- **`demo-data/demo-api.js`:** the same `guard()` behaviour and `admin.linkControl` action.
+- **`drive-backup/Wedding/Sheets/Guests.csv`:** header has the two new columns.
+- **Production rollout still needed:** paste the new `Code.gs` into Apps Script, run `setup()` again (it adds the new columns), and redeploy.
+
+## 3. Bugs fixed (truncated or cut-off lines)
+
+Many lines in this repo had been cut off mid-line. These are fixed, and every file now passes `node --check`:
+
+| File | Fix |
+|---|---|
+| `js/i18n.js` | Rebuilt the `invite.title`, `closed.title` and `nav.whisper` entries. **Check the Nepali text.** |
+| `js/nametags.js` | Rebuilt the wristband row ending (emoji per band). **Check the emoji choice.** |
+| `js/api.js` | `const body = { action, data: data \|\| {}, client: client() };` (around line 36). |
+| `js/admin.js` | Rebuilt the `fillGuestForm` field array. Renamed the gift-section `people` variable to `giftPeople`, because it duplicated `let people` (around line 559). |
+| `demo-data/demo-api.js` | Restored the `resolveCode` and `admin.genCodes` lines (my earlier edit had truncated them). |
+| `apps-script/Code.gs` | Removed a dangling fragment in `doPost`. Completed the Traditions and Scenarios seeding and the cache clear in `setup()`. Completed the helper-role regex in `roleAllows_`. Completed the `Phone:` line in the guest gift record. **Review the gift record line and the helper-role list.** |
+
+## 4. Test infrastructure
+
+- **Portable Node:** `tools/node/node.exe` (v24.21.0), installed locally rather than system-wide.
+- **Packages:** `tests/package.json` with `@playwright/test` and `monocart-coverage-reports` in `tests/node_modules`.
+  - npm needs `$env:NODE_OPTIONS='--use-system-ca'` (the State network's inspection certificate) and `$env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD='1'`.
+  - Playwright uses the installed Chrome (`channel: 'chrome'`).
+- **Test files:**
+  - `tests/server.js`: static server on 127.0.0.1:8199 serving the app root.
+  - `tests/playwright.config.js`: testDir `./e2e`, 1 worker, webServer is `node server.js`.
+  - `tests/coverage.config.js` and `tests/e2e/coverage-teardown.js`: merged V8 coverage written to `tests/coverage/` (`index.html`, `coverage-summary.json`).
+  - `tests/e2e/fixtures.js`: a `page` fixture that fails on any uncaught page error and collects coverage. Helpers are `openDemo(page,url)`, `resetDemo(page)` and `adminLogin(page,url)`.
+  - `tests/e2e/pages.spec.js`: loads all 14 pages; **14/14 pass**.
+  - `tests/e2e/crawl.spec.js`: **state unknown.** A minimal version (clicks buttons on `index.html`) passed. The full version (fills forms and clicks controls as guest, visitor and admin on every page) was being written when the command was cancelled; check whether it exists and is complete.
+  - `tests/link-control.test.html` and `tests/Run-Tests.ps1`: earlier PowerShell plus headless-Chrome link-control and syntax checks; **27/27 pass**. They do not yet run the Playwright suite.
+
+  - `tests/backend/field-readiness.test.js` and `tests/e2e/field-readiness.spec.js`: find-pass recovery, check-in timestamps, offline door queue, in-app browser banner, photo compression, QR contrast, 48px targets, stacked bilingual text, ritual "Up next". **Written but not run yet.**
+
+### How to run
+
+```powershell
+cd "C:\Users\eu01242003\OneDrive - State of Minnesota - MN365\Desktop\proj\tests"
+$env:Path = "..\tools\node;$env:Path"
+npx playwright test --reporter=line          # all E2E specs
+npx playwright test pages --reporter=line    # page-load suite only
+..\tools\node\node.exe --check ..\js\app.js  # quick syntax check of one file
+.\Run-Tests.ps1                              # earlier link-control checks
+```
+
+**Coverage baseline** (page-load suite only): lines about 50%, statements about 41%, functions about 42%, branches about 28%.
+
+## 5. Known environment problems (read first)
+
+1. **OneDrive folder is unreliable.** Files written with the IDE's file-creation and edit tools sometimes never reached the disk; this kept happening with `*.spec.js` files. Editor edits to `Code.gs` and `demo-api.js` were also sometimes not saved. This is likely the cause of the cut-off lines. Files written from PowerShell (`[IO.File]::WriteAllText`) did persist. **Recommendation:** move the project out of OneDrive (for example to `C:\dev\proj`), or verify every write from the terminal.
+2. **Long terminal commands get cancelled** ("A task was canceled"). Keep commands short, run Playwright in the background with `Start-Process ... -RedirectStandardOutput file.txt`, and poll that file.
+3. **No Node on PATH.** Always prepend `tools\node`.
+
+## 6. Remaining work (original request: end-to-end tests for every scenario, find and fix bugs, 100% coverage)
+
+1. Confirm or rewrite `tests/e2e/crawl.spec.js`, run it (with a time limit), and fix any page errors it finds.
+2. Write scenario specs for guest flows:
+   - invite code (`?c=DEMO01`) and `?g=` links;
+   - register with members and RSVP per event;
+   - sign in by phone and code;
+   - photo page (uploads are blocked in demo mode);
+   - ceremony, gift form, games and scores, pass with QR;
+   - memorial (diya and memory), whisper, slideshow;
+   - language toggle, closed-app state, feature flags off, and a revoked or expired link.
+3. Write admin specs:
+   - login with a wrong passcode and with `demo`;
+   - every tab: guests (add, edit, delete, import, codes, check-in, link control), gifts and cash, media approve/reject, thank-you queue, team/admins, analytics, live and rituals, rooms, settings;
+   - the planner and name-tag pages.
+4. Test the backend: load `Code.gs` in Node `vm` with fake `SpreadsheetApp`, `DriveApp`, `CacheService`, `PropertiesService`, `LockService`, `Utilities`, `UrlFetchApp`, `ContentService` and `ScriptApp`. Call `doPost` for every `PUBLIC_ACTIONS` and `ADMIN_ACTIONS` entry, plus role checks and `setup()`. Add the result to the coverage report.
+5. Add tests until coverage stops rising. Real Drive uploads and Google OAuth cannot run locally, so report the measured figure honestly rather than claiming 100%.
+6. Wire everything into `tests/Run-Tests.ps1` and document it.
+
+## 7. Other open items (not started)
+
+- Production deploy: run `setup()`, change `ADMIN_PASSCODE`, deploy as a web app, put the `/exec` URL into `js/config.js`, and host the static site over HTTPS.
+- Sharing guidance already given to the user:
+  - each household gets its own link, `index.html?c=CODE`;
+  - venue visitors get the photo QR links;
+  - admins use `admin/index.html`;
+  - never share the Apps Script `/exec` URL.

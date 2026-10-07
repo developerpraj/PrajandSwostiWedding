@@ -1,0 +1,87 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Brahma Bibaha Planner · Admin</title>
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+  <style>
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; }
+    .kpi { text-align: center; } .kpi .n { font-size: 1.9rem; font-weight: 800; color: var(--primary); } .kpi .l { font-size: .85rem; }
+    .meter { height: 14px; border-radius: 999px; background: #eee; overflow: hidden; } .meter > span { display: block; height: 100%; background: linear-gradient(90deg, #f4a300, #c2185b); }
+    table input, table select { padding: .25rem .35rem; font-size: .9rem; min-width: 60px; }
+    td.score { font-weight: 700; text-align: center; }
+    .tips li { margin: .3rem 0; }
+    .legend { font-size: .8rem; color: #6b5a4e; }
+    .sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .6rem; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🔥 Brahma Bibaha Planner</div>
+    <nav>
+      <a href="index.html">Admin</a>
+      <a href="#" id="logout">Logout</a>
+    </nav>
+  </header>
+
+  <main style="max-width:1300px">
+    <div id="msg" class="msg" hidden></div>
+    <form id="loginForm" class="card" style="max-width:400px;margin:auto" hidden>
+      <h2>Admin Login</h2>
+      <input type="password" name="key" required autocomplete="current-password" />
+      <p><button class="btn">Login</button></p>
+    </form>
+
+    <div id="app" hidden>
+      <p class="muted">🔒 Admin only. Use nicknames or initials. Nothing here is linked to guest records or shown in the app.</p>
+
+      <section class="card">
+        <h2>Vibe forecast</h2>
+        <div class="kpis" id="kpis"></div>
+        <p><b>Predicted wedding vibe</b> <span id="forecastTxt"></span></p>
+        <div class="meter"><span id="forecastBar" style="width:0"></span></div>
+        <h3>Recommendations</h3>
+        <ul class="tips" id="tips"></ul>
+      </section>
+
+      <section class="sides" id="sides"></section>
+
+      <section class="card">
+        <div class="row-between"><h2>People (vibe engineering)</h2>
+          <span><select id="sideFilter"><option value="">All sides</option></select> <button class="btn sm" id="addPerson" type="button">+ Add</button></span></div>
+        <p class="legend">Age band: A 20–30 (5) · B 30–40 (4) · C 40–50 (3) · D 1–10 (2) · E 50–60 (1.5) · F 60+ (1) &nbsp;|&nbsp;
+          Fun: A very funny (5) · B moderate (4) · C easy going (3) · D ok (2) · E boring (1) · F very boring (0) &nbsp;|&nbsp;
+          Edu/Prof responsible: 3 letters, A=3 B=2 C=1 D=0.67 E=0.33 (Best &gt;7, Average 4–7, Okay &lt;4)<br>
+          Vibe = 50% fun + 25% age energy + 25% responsibility (all on a 5-point scale).</p>
+        <div class="table-wrap"><table id="people"></table></div>
+      </section>
+
+      <section class="card">
+        <div class="row-between"><h2>Traditions to weave in</h2><button class="btn sm" id="addTrad" type="button">+ Add</button></div>
+        <p class="legend">Tick "Include" to add a tradition. The vibe boost (0–3) raises the forecast. Use "Our version" for how the tradition fits a Hindu Brahma Bibaha.</p>
+        <div class="table-wrap"><table id="trads"></table></div>
+      </section>
+
+      <section class="card">
+        <div class="row-between"><h2>Venue &amp; budget scenarios</h2><button class="btn sm" id="addScen" type="button">+ Add</button></div>
+        <div class="table-wrap"><table id="scens"></table></div>
+      </section>
+
+      <section class="card">
+        <div class="row-between"><h2>Venues shown to guests</h2><button class="btn sm" id="addVenue" type="button">+ Add</button></div>
+        <p class="legend">Guests see these on Home and Register with a <b>Navigate</b> button (Google Maps). Leave Map link blank to build it from the address or lat/lng. "Selectable" lets guests choose this venue.</p>
+        <div class="table-wrap"><table id="venues"></table></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/i18n.js"></script>
+  <script src="../js/app.js"></script>
+  <script src="../js/planner.js"></script>
+</body>
+</html>

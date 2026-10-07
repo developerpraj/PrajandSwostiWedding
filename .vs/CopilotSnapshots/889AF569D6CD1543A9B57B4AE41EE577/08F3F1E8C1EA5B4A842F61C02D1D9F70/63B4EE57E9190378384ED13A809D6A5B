@@ -1,0 +1,77 @@
+﻿(async function () {
+  const msg = document.getElementById('msg');
+  let cfg, m;
+  try { cfg = await App.boot(); } catch (e) { App.msg(msg, e.message, 'err'); return; }
+  if (!App.on(cfg, 'feature.memorial')) { App.msg(msg, '🙏', 'ok'); return; }
+
+  const id = App.guestId();
+  try { m = await API.call('getMemorial'); } catch (e) { App.msg(msg, e.message, 'err'); return; }
+
+  let guestName = '';
+  if (id) {
+    try { const g = await API.call('getGuest', { guestId: id }); guestName = g.guest.Name || ''; } catch (e) { }
+  }
+  const memForm = document.getElementById('memForm');
+  if (guestName) memForm.name.value = guestName;
+
+  function renderProfile() {
+    const p = m.profile || {};
+    document.getElementById('momName').textContent = I18N.bi(p.nameEn, p.nameNe);
+    document.getElementById('momYears').textContent = p.years || '';
+    document.getElementById('momDedication').textContent = I18N.bi(p.dedicationEn, p.dedicationNe);
+    const q = document.getElementById('momQuote');
+    q.hidden = !(p.quoteEn || p.quoteNe);
+    q.textContent = I18N.bi(p.quoteEn, p.quoteNe);
+    const img = document.getElementById('momPhoto');
+    if (p.photoUrl) { img.src = p.photoUrl; img.hidden = false; } else { img.parentElement.textContent = '🪔'; }
+  }
+
+  function renderDiyas() {
+    document.getElementById('diyaCount').textContent = m.diyaCount;
+    document.getElementById('diyaField').innerHTML = '<span>🪔</span>'.repeat(Math.min(m.diyaCount, 108));
+    document.getElementById('blessings').innerHTML = (m.blessings || []).map(b =>
+      '<div>🌸 ' + App.esc(b.blessing) + ' <span class="muted">— ' + App.esc(b.name) + '</span></div>').join('');
+  }
+
+  function renderWall() {
+    document.getElementById('wallSection').hidden = !m.memories.length;
+    document.getElementById('wall').innerHTML = m.memories.map(x =>
+      '<div class="memory">' + App.esc(x.text) + '<div class="who">— ' + App.esc(x.name) + (x.relation ? ' (' + App.esc(x.relation) + ')' : '') + '</div></div>').join('');
+  }
+
+  renderProfile();
+  renderDiyas();
+  renderWall();
+  document.addEventListener('langchange', renderProfile);
+  ['tribute', 'diyaSection'].forEach(s => document.getElementById(s).hidden = false);
+  memForm.hidden = false;
+
+  document.getElementById('diyaForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target;
+    const btn = f.querySelector('button');
+    btn.disabled = true;
+    try {
+      const r = await API.call('lightDiya', { guestId: id, name: guestName || memForm.name.value, blessing: f.blessing.value });
+      m.diyaCount = r.diyaCount;
+      if (f.blessing.value) m.blessings.unshift({ name: guestName || memForm.name.value || 'Guest', blessing: f.blessing.value });
+      f.reset();
+      renderDiyas();
+    } catch (err) { App.msg(msg, err.message, 'err'); }
+    finally { btn.disabled = false; }
+  });
+
+  memForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    const out = document.getElementById('memMsg');
+    try {
+      const r = await API.call('submitMemory', {
+        guestId: id, name: memForm.name.value, relation: memForm.relation.value,
+        text: memForm.text.value, isPrivate: memForm.isPrivate.checked
+      });
+      App.msg(out, I18N.t('mem.thanks') + (r.pending ? ' ' + I18N.t('mem.pending') : ''), 'ok');
+      memForm.text.value = '';
+      if (!r.pending) m = await API.call('getMemorial'), renderWall();
+    } catch (err) { App.msg(out, err.message, 'err'); }
+  });
+})();

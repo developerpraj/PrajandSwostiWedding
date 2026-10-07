@@ -1,0 +1,334 @@
+﻿# 🪔 Nepali Hindu Wedding Web App — Project Plan
+
+> A personalized, admin-controlled wedding web app.
+> **Hosting:** GitHub Pages (free) · **Data:** Google Sheets + Google Drive (free) · **Backend:** Google Apps Script (free)
+> Includes a dedicated memorial section in loving memory of Mom 🙏.
+
+---
+
+## 1. Principles
+- 💸 **100% free services only** — GitHub Pages, Google Apps Script, Google Sheets, Google Drive, Gmail, free CDN libraries.
+- ⚙️ **Everything customizable** — every feature can be toggled ON/OFF by the admin.
+- 🔒 **Nothing revealed early** — events unlock by time / tap / group, filtered **server-side**.
+- 🌐 **Three language modes** — English, नेपाली, and Mixed (50% नेपाली + 50% English, shown side by side).
+- ✏️ **Easy to edit** — admin panel forms, or edit the Google Sheet directly.
+- 🙏 **Mom is part of everything** — memorial page plus her presence throughout.
+
+---
+
+## 2. Free Services Used
+
+| Need | Free Service |
+|---|---|
+| Hosting | GitHub Pages |
+| API / backend | Google Apps Script Web App |
+| Database | Google Sheets |
+| Files (photos, videos, invites, memories) | Google Drive |
+| Emails | Gmail via Apps Script (~100 recipients/day) |
+| Notifications | In-site live banner (polling) + Gmail + WhatsApp click-to-chat links |
+| QR codes | `qrcode-generator` (free CDN, jsDelivr) |
+| QR scanning | `html5-qrcode` (free CDN) |
+| PDF | `jsPDF` (free CDN) |
+| Fonts | Google Fonts (Noto Sans Devanagari, Poppins, Tiro Devanagari) |
+| Offline | PWA Service Worker |
+
+> ❌ No paid services. No OneSignal/Brevo required.
+
+---
+
+## 3. Architecture
+
+```mermaid
+flowchart TB
+	subgraph Client["GitHub Pages (Static Site)"]
+		G["Guest Pages"]
+		R["Registration"]
+		M["Memorial"]
+		A["Admin Panel"]
+	end
+	subgraph Google["Google (Free)"]
+		API["Apps Script Web App"]
+		SH["Google Sheets"]
+		DR["Google Drive"]
+		GM["Gmail"]
+	end
+	G -->|"POST text/plain JSON"| API
+	R --> API
+	M --> API
+	A -->|"+ admin key"| API
+	API --> SH
+	API --> DR
+	API --> GM
+```
+
+---
+
+## 4. Language System (English / नेपाली / Mixed)
+
+| Mode | Example |
+|---|---|
+| `en` | Register |
+| `ne` | दर्ता गर्नुहोस् |
+| `mix` (50/50) | दर्ता गर्नुहोस् · Register |
+
+- Guest picks language from a toggle (remembered in browser).
+- Admin sets the **default** language in Settings.
+- All UI labels live in `js/i18n.js` (`{ en, ne }` pairs). Mixed mode renders both.
+- Content (events, story, memorial) has `TitleEn` / `TitleNe` columns in the Sheet.
+- Invitation cards and name tags support all three modes.
+
+---
+
+## 5. Feature List (all toggleable)
+
+### 5.1 Registration (required for all guests)
+Every registered guest must fill in their details:
+- Full name (English + Nepali optional)
+- Phone, email
+- Date of birth (used for drinking age band)
+- Side: Bride / Groom / Both
+- Relation (e.g., Mama, Fupu, Friend, Colleague) — dropdown + custom
+- Number of people attending (≤ admin's admit count)
+- Attending each invited event: Yes / No / Maybe
+- Meal preference (Veg / Non-veg / Vegan / Jain) and allergies
+- Arrival/departure date (if travelling)
+- Accommodation request — **only shown if admin enabled it for that guest**
+- Consent checkbox
+
+### 5.2 Real-time Attendance Dashboard (admin)
+- Auto-refresh every **20 seconds** from static `live.json` (no Apps Script load).
+- Totals: Invited · Registered · Attending · Not attending · Maybe · Pending.
+- Headcount per event (with plus-ones).
+- Meal counts per event (for caterer).
+- Bride side vs groom side counts.
+- Drinking-eligible count (for bar planning).
+- Accommodation: requested / assigned / rooms left.
+- Checked-in now (live during the event).
+- Export CSV for caterers / venue.
+
+### 5.3 Accommodation (admin-managed only)
+- Admin marks guests as **AccommodationEligible** (only they see the option).
+- Admin defines rooms/hotels (`Rooms` tab: name, capacity, location, check-in/out).
+- Guests request: nights, number of people, special needs.
+- Admin approves and assigns rooms; guest sees assignment on their pass.
+- Admin can close requests anytime.
+
+### 5.4 Age Verification & Drinking Band
+- DOB collected at registration → age computed **server-side**.
+- Legal drinking age is an admin setting (default **18**).
+- Status flow: `Under age` · `Self-declared 18+` · `ID verified ✅`.
+- At check-in, volunteer verifies ID → marks **Verified**.
+- Digital guest pass shows band color:
+  - 🟢 **Green** — verified, may be served alcohol
+  - 🟡 **Yellow** — self-declared, verify ID at bar
+  - 🔴 **Red** — under age / not served alcohol
+- Printable **wristband** strips (name + color + QR).
+- Bar staff scan QR → see band status.
+- Guests can choose "I don't drink" → band shows 🔵 non-drinker (no judgement, just mocktails).
+
+### 5.5 Name Tags with Relation
+- Auto-generated printable name tags for all registered guests.
+- Shows: Name (EN/NE), **relation tag** (e.g., "Bride's Mama · दुलहीका मामा"), side color, QR code, optional drinking band dot.
+- Side colors: Bride side (e.g., marigold), Groom side (e.g., maroon) — customizable.
+- Print layout: A4 sheet, 8 tags per page; also single-tag print.
+- Language mode applies to tags.
+
+### 5.6 Guests & Personalization
+- CSV import, unique ID, personal link `?g=XXXX`, personal QR code.
+- Personalized welcome ("नमस्ते, Sharma परिवार 🙏").
+- Groups: Family, Friends, VIP, Bride side, Groom side, custom.
+
+### 5.7 Invitation Card Generator
+- Nepali Hindu templates: Ganesh, mandala, marigold, Dhaka pattern, temple arch.
+- Devanagari fonts, shloka, parents' names, Mom's blessing line (*"स्वर्गीय ______ को आशीर्वादसहित"*).
+- Personalized per guest with QR; PNG / PDF / animated web invite.
+- Bulk generate to Drive; share via WhatsApp / email / native share.
+- Tracking: sent · opened · registered.
+
+### 5.8 Events & Reveal System
+- Typical Nepali wedding events: Swayambar/Tilak, Mehendi, Haldi, Sangeet, Janti (Baraat), Swagat, Kanyadan, Sindurdan, Saptapadi, Bidaai, Ghar Bhitryaune, Reception.
+- Reveal styles: 🔒 timed · ✉️ envelope · 🪔 diya · 🎟️ scratch · 🔑 code · 🎁 daily unlock · 👥 group-only.
+- Server-side filtering only. Muhurat countdown. Maps, dress code, Add to Calendar.
+
+### 5.9 Live & Notifications (free)
+- "What's Happening Now" banner (polling).
+- Gmail confirmations/reminders.
+- WhatsApp click-to-chat links (unlimited, free).
+- Find my table, coordinator help button.
+
+### 5.10 Photos, Videos & Wishes
+- Resumable upload direct to Drive (large videos), moderation queue, gallery, live photo wall, video blessings.
+
+### 5.11 Fun & Cultural
+- Ritual explainer cards (EN/NE), Saptapadi vows, family tree.
+- Joota Lukaune game, couple quiz, antakshari scoreboard, polls, song requests, Sangeet signup, lucky draw.
+- Shagun QR (eSewa / Khalti / bank QR image uploaded by admin).
+
+### 5.12 In Loving Memory of Mom 🙏
+- Memorial page: tribute header, life story, her words, favorite songs, recipes, gallery.
+- Everyone participates: 🪔 light a diya (live counter), memory wall (text/photo/voice/video), letters to Mom (private/shared), 🌸 pushpanjali, "how I knew her".
+- Presence throughout: invite blessing line, home page card, **moment of remembrance** before Kanyadan/Saptapadi, reserved seat, photos on live wall, Sangeet tribute.
+- Keepsakes: digital memory book (PDF), memory slideshow, permanent page.
+- Sensitivity: moderation ON by default, private letters never public, calm design, visibility per group.
+
+### 5.13 Check-in & PWA
+- QR check-in (volunteer), ID verification for drinking band, offline PWA.
+
+### 5.13a Side Themes (auto)
+- Bride side → **Gulabi Marigold** (rose pink `#c2185b` + marigold `#f4a300`).
+- Groom side → **Royal Peacock** (peacock teal `#0f5c63` + gold `#d4a017`).
+- Applied automatically from the guest's side; colors editable; toggle `feature.sideThemes`.
+
+### 5.13b Install as App (iOS & Android)
+- Manifest + service worker + PNG icons; full-screen, bottom tab bar, safe-area aware.
+- **📲 Install app** button: one-tap on Android; guided steps on iOS; detects WhatsApp/Instagram in-app browsers.
+
+### 5.13c Auto Turn-off
+- After `wedding.endDate` guest features are disabled server-side and a thank-you screen is shown.
+- Memorial can stay open (`app.keepMemorialAfterEnd`).
+
+### 5.14 After the Wedding
+- Thank-you pages, highlight video, stats, archive mode.
+
+---
+
+## 6. Google Sheet Structure
+
+| Tab | Key Columns |
+|---|---|
+| `Settings` | Key, Value, Type, Group, Description |
+| `Guests` | GuestId, Name, NameNe, Family, Side, Relation, RelationNe, Groups, Phone, Email, DOB, Age, DrinkStatus, NonDrinker, AdmitCount, AttendingCount, Status, Meal, Allergies, Arrival, Departure, AccommodationEligible, Table, InviteSent, InviteOpened, Registered, RegisteredAt, CheckedIn, CheckedInAt, Notes |
+| `Events` | EventId, NameEn, NameNe, DateTime, Venue, MapLink, DressCode, RevealStyle, UnlockAt, Groups, Order, Visible |
+| `EventRsvp` | GuestId, EventId, Response, Count, UpdatedAt |
+| `Rooms` | RoomId, Name, Location, Capacity, CheckIn, CheckOut, Notes |
+| `Accommodation` | RequestId, GuestId, Nights, People, Needs, Status, RoomId, UpdatedAt |
+| `Live` | Timestamp, MessageEn, MessageNe, Active |
+| `MomProfile` | Key, Value |
+| `MomMemories` | MemoryId, GuestId, Name, Relation, Type, Text, DriveFileId, Status, IsPrivate, Timestamp |
+| `MomDiyas` | GuestId, Name, Blessing, Timestamp |
+| `Story`, `Family`, `Rituals`, `Media`, `Wishes`, `Games`, `Scores`, `Polls`, `Votes`, `Songs`, `Sangeet`, `InviteTemplates` | (later phases) |
+| `AuditLog` | Timestamp, Action, Details |
+
+Drive folders: `Wedding/Uploads/{Pending,Approved}`, `Wedding/Invites`, `Wedding/Mom/{Photos,Memories,VoiceNotes,MemoryBook}`.
+
+---
+
+## 7. API (Apps Script `doPost` actions)
+
+| Action | Access | Purpose |
+|---|---|---|
+| `getConfig` | Public | Enabled features, theme, default language |
+| `getGuest` | Guest ID | Profile + allowed events + accommodation option |
+| `register` | Guest ID | Save registration, per-event RSVP, compute age/band |
+| `requestAccommodation` | Guest ID (eligible only) | Accommodation request |
+| `getPass` | Guest ID | Digital pass: QR, band, table, room |
+| `getLive` | Public | Live banner |
+| `getMemorial` / `lightDiya` / `submitMemory` | Guest | Memorial |
+| `admin.login` | Passcode | Verify admin |
+| `admin.stats` | Admin | Real-time attendance dashboard |
+| `admin.guests` / `admin.saveGuest` / `admin.importGuests` | Admin | Guest management |
+| `admin.setAccommodationEligible` / `admin.rooms` / `admin.saveRoom` / `admin.assignRoom` | Admin | Accommodation |
+| `admin.settings` / `admin.saveSetting` | Admin | Toggles & customization |
+| `admin.checkIn` / `admin.verifyAge` | Admin/Volunteer | Check-in & drinking band |
+| `admin.postLive` | Admin | Live update |
+| `admin.memories` / `admin.moderateMemory` | Admin | Memorial moderation |
+
+---
+
+## 8. Folder Structure
+
+```
+proj/
+├── WEDDING_PLAN.md
+├── README.md
+├── index.html            # Home: countdown, live banner, memorial card
+├── register.html         # Registration (required details)
+├── pass.html             # Digital guest pass: QR, drink band, table, room
+├── memorial.html         # In loving memory of Mom
+├── admin/
+│   ├── index.html        # Dashboard (real-time), guests, accommodation, settings
+│   └── nametags.html     # Name tags + wristbands
+├── css/
+│   ├── base.css
+│   └── memorial.css
+├── js/
+│   ├── config.js         # API URL
+│   ├── api.js
+│   ├── i18n.js           # en / ne / mix
+│   ├── app.js            # shared helpers, language switcher
+│   ├── register.js
+│   ├── pass.js
+│   ├── memorial.js
+│   ├── admin.js
+│   └── nametags.js
+└── apps-script/
+	└── Code.gs
+```
+
+---
+
+## 9. Phased Roadmap
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Setup: Google account, Sheet, Apps Script, GitHub Pages | 🟢 Scaffolded |
+| 1 | Settings, toggles, language system (en/ne/mix), admin login | 🟢 Scaffolded |
+| 2 | Guests, personal links, registration, per-event RSVP | 🟢 Scaffolded |
+| 3 | Real-time attendance dashboard | 🟢 Scaffolded |
+| 4 | Accommodation (admin-managed) | 🟢 Scaffolded |
+| 5 | Age verification, drinking bands, name tags | 🟢 Scaffolded |
+| 6 | Memorial foundation (diya, memories, moderation) | 🟢 Scaffolded |
+| 7 | Invitation card generator | ⚪ Next |
+| 8 | Events reveal system + muhurat countdown | ⚪ |
+| 9 | Live updates, check-in scanner, PWA | ⚪ |
+| 10 | Photos/videos (resumable Drive upload), wishes, live wall | ⚪ |
+| 11 | Games, cultural features, family tree, rituals | ⚪ |
+| 12 | Memory book, thank-you pages, archive | ⚪ |
+| 13 | Testing on phones / WhatsApp browser, dry run, launch | ⚪ |
+
+**Estimate:** ~6–8 weeks part-time. MVP (phases 0–8) ≈ 3–4 weeks.
+
+---
+
+## 10. Security Checklist
+- [ ] Locked/hidden events filtered server-side.
+- [ ] Guest IDs random, 8 chars.
+- [ ] Admin passcode stored in Apps Script **Script Properties** (never in the repo).
+- [ ] Guests never receive other guests' phone/email/DOB.
+- [ ] DOB visible only to admin; guests see only band color.
+- [ ] Accommodation option returned only for eligible guests.
+- [ ] Uploads go to private Pending folders; moderation before display.
+- [ ] Use a dedicated personal Google account (not a work account).
+
+---
+
+## 11. Risks & Mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Apps Script latency (1–2s) | Loading states, browser caching |
+| Gmail daily limit | WhatsApp links for bulk; email only confirmations |
+| Polling ≠ true realtime / 30-execution limit | Phones poll static `live.json` on GitHub Pages every 20s (published by `Live.gs`) with API fallback |
+| Simultaneous writes corrupting rows | Public write actions run inside a script lock (`withLock_`) |
+| Stale guest data | Versioned cache keys invalidated on every write; TTL capped at next reveal |
+| Silent failures on the day | Hourly `healthCheck` email; see [docs/DAY_OF.md](docs/DAY_OF.md) |
+| Fake DOB | ID verification at check-in → green band only after verification |
+| Weak venue Wi-Fi | PWA offline pass; printed name tags/wristbands |
+| Hosting in work OneDrive | Move repo to a personal folder before publishing |
+
+---
+
+## 12. Decisions Needed
+- [ ] Wedding date & events list
+- [ ] Legal drinking age to use (default 18)
+- [ ] Side colors for name tags
+- [ ] Mom's name, photo, dedication text
+- [ ] Rooms/hotels available for accommodation
+
+## Engagement phase (implemented)
+- Household memory: Members sheet, remembered on device, per-person switcher and passes.
+- Mandatory relationship disclosure (RelationTo + RelationType) drives events, games and theme.
+- QR photo/video upload to Drive; shared gallery with view/download only; owners may delete own uploads; admin moderation.
+- Relationship-targeted games, points, Bride vs Groom leaderboard.
+- Home hub with daily challenge, next event, latest moments.
+

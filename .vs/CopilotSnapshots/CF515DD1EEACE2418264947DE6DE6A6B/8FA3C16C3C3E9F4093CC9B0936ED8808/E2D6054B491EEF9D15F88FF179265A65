@@ -1,0 +1,78 @@
+﻿<!DOCTYPE html>
+<html lang="ne">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#2b1035" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <title>गोप्य सन्देश · Secret note</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/mobile.css" />
+  <link rel="stylesheet" href="css/ops.css" />
+</head>
+<body class="whisper-page">
+  <header class="topbar">
+    <div class="brand">🪔 शुभविवाह</div>
+    <nav>
+      <a href="index.html" data-guest-link data-icon="🏠" data-i18n="nav.home">Home</a>
+      <a href="photos.html" data-guest-link data-icon="📷" data-i18n="nav.photos" data-feature="feature.media">Photos</a>
+      <a href="gift.html" data-guest-link data-icon="🎁" data-i18n="nav.gift" data-feature="feature.gifts">Gift</a>
+      <a href="whisper.html" data-guest-link data-icon="🕶️" data-i18n="nav.whisper" class="current">Secret note</a>
+    </nav>
+    <div class="lang-switch" id="langSwitch"></div>
+  </header>
+
+  <main>
+    <div id="msg" class="msg" hidden></div>
+    <form class="card whisper" id="wForm">
+      <div class="whisper-icon">🕶️</div>
+      <h1 data-i18n="anon.title">Send a secret note</h1>
+      <p class="muted" data-i18n="anon.intro">No name. Just your heart. Say anything to the couple - a wish, a confession, a funny story.</p>
+      <textarea name="text" rows="6" maxlength="3000" data-i18n-ph="anon.ph"></textarea>
+      <label class="btn ghost block">🎥 <span data-i18n="anon.attach">Add a photo or video (optional)</span><input type="file" name="file" accept="image/*,video/*" hidden /></label>
+      <small class="muted" id="fName"></small>
+      <progress max="100" value="0" hidden id="bar"></progress>
+      <p><button class="btn block" id="wBtn">🤫 <span data-i18n="anon.send">Send secretly</span></button></p>
+    </form>
+    <section class="card center" id="done" hidden>
+      <div style="font-size:3rem">💌</div>
+      <h2 data-i18n="anon.sent">Delivered. Your secret is safe.</h2>
+      <p><button class="btn ghost" type="button" id="again" data-i18n="anon.again">Send another</button></p>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async function () {
+      const msg = document.getElementById('msg');
+      try { await App.boot(); } catch (e) { App.msg(msg, e.message, 'err'); return; }
+      const f = document.getElementById('wForm');
+      f.file.onchange = () => document.getElementById('fName').textContent = f.file.files[0] ? f.file.files[0].name : '';
+      f.addEventListener('submit', async e => {
+        e.preventDefault();
+        const btn = document.getElementById('wBtn');
+        if (!f.text.value.trim() && !f.file.files[0]) { f.text.focus(); return; }
+        btn.disabled = true;
+        try {
+          let mediaId = '';
+          if (f.file.files[0]) {
+            const bar = document.getElementById('bar');
+            bar.hidden = false;
+            mediaId = (await App.uploadFile(f.file.files[0], { purpose: 'whisper', anon: true, name: localStorage.getItem('visitorName') || 'Visitor' }, p => bar.value = p)).media.id;
+          }
+          await API.call('sendWhisper', Object.assign(App.who(), { text: f.text.value.trim(), mediaId: mediaId, visitorName: localStorage.getItem('visitorName') || '' }));
+          f.reset(); f.hidden = true; document.getElementById('done').hidden = false;
+        } catch (err) { App.msg(msg, err.message, 'err'); }
+        btn.disabled = false;
+      });
+      document.getElementById('again').onclick = () => { document.getElementById('done').hidden = true; f.hidden = false; document.getElementById('bar').hidden = true; document.getElementById('fName').textContent = ''; };
+    })();
+  </script>
+</body>
+</html>

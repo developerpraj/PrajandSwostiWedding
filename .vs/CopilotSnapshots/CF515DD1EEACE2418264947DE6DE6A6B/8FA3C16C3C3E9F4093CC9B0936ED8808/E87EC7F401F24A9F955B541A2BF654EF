@@ -1,0 +1,45 @@
+﻿# Wedding-day operations: audit, duties, phones-down, blast, swipe, themes
+
+All paths below are from the repo root. Nothing here adds a dependency. Everything is vanilla JS plus Apps Script.
+
+## Helper duties (`Admins.Duties`)
+- In **Admin, then Team**, tick Door, Bar, Gifts and/or Live for a helper. Leave all of them blank to keep the old behaviour (all helper tools).
+- The server enforces duties (`apps-script/Pure.gs`: `DUTY_ACTIONS`, `dutyAllows_`). Hiding a tab is only a UI convenience.
+- `admin.me` returns `tabs` (`dutyTabs_`). For example, a Door helper sees only the Door tab.
+
+| Duty | Actions | Tabs |
+|---|---|---|
+| door | checkIn, checkInMember, guests, people, household, setTable | door |
+| bar | verifyAge, verifyMember, guests, people, stats | dash, door |
+| gifts | gifts, saveCashGift, auditGift, envelopePhoto, thank* | gifts, thanks |
+| live | rituals, ritualNow, stats | live, dash |
+
+## Salami audit (Gifts tab, then **Start audit**)
+- Each cash envelope appears as a card showing the envelope photo, giver and amount. Swipe right or press → to **Verify**. Swipe left or press ← to **Flag**; a flag needs a short note. **Skip** leaves the gift pending.
+- Results are stored in `Gifts.AuditStatus` (`Verified`, `Flagged` or blank), along with `AuditedAt`, `AuditedBy` and `AuditNote`. Action: `admin.auditGift {giftId, status, note}`.
+
+## Phones down (Live tab)
+- **Freeze now** for N minutes, then **Reopen**. Settings: `freeze.on`, `freeze.until`, `freeze.windows` (`startISO>endISO;...`), `freeze.messageEn` and `freeze.messageNe`.
+- While frozen, `submitAnswer` and `startUpload` are rejected and the public leaderboard is empty. Guests see a banner on every page. The games and photos pages show a paused card. Schedule, pass and invitation stay available.
+- Scheduled windows are re-evaluated on every config read, including cached reads, and in `live.json`.
+
+## Emergency blast (Live tab)
+- **Build list** returns deduplicated phone numbers for guests who are not checked in, not declined and still have an active link. You can filter by side.
+- Copy the numbers and the message into a WhatsApp broadcast. **The app never sends messages.** Action: `admin.blastList {side}`.
+
+## Door swipe (mobile)
+- Swipe a row right to check in, with a full-screen flash: green for adults, red for minors, blue when no drink band applies. Swipe left to call the guest. Long-press (550 ms) to edit the table (`admin.setTable`).
+- Offline check-ins show a yellow **Sync pending** pill until the queue (`pending_checkins`) syncs.
+- The trigger threshold is 35% of the row width or 90 px. The gesture code is `App.swipe` in `js/app.js` and uses pointer events.
+
+## Group themes and presets
+- Settings: `theme.brideFamilyPrimary`, `theme.groomFamilyPrimary` and `theme.friendPrimary` override the side colour for that group. Leave one blank to fall back to the side theme.
+- `theme.preset` can be `royal`, `garden` or `midnight`. It sets `html[data-preset]`, and the styles live in `css/ops.css`.
+
+## Styling and animations
+- `css/ops.css` contains swipe rows, Door flash, the audit deck, the freeze banner, paused cards, theme presets and the premium invitation card (gold-foil border, inner rule, ornaments and shimmer). All motion is turned off under `prefers-reduced-motion`.
+- `sw.js` cache bumped to `wedding-v10` and precaches `css/ops.css`.
+
+## Tests (written, **not yet run**)
+- `tests/backend/admin-ops.test.js` covers duties, `dutyTabs_`, server duty enforcement, `freezeState_`, freeze gates, `auditGift`, `blastList_` and `setTable`.
+- Run later with the normal backend suite. Dependencies are installed automatically by `tests/Run-Tests.ps1`.

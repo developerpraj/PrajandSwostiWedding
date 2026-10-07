@@ -1,0 +1,52 @@
+// drive-backup/Wedding must mirror the backend exactly: one CSV per SHEETS tab with the same header order,
+// every DEFAULT_SETTINGS key in Settings.csv, and every row field the code writes present as a column.
+tools\node\node.exe
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const { loadBackend, parseCsv } = require('../../tools/make-drive-backup');
+
+const root = path.join(__dirname, '..', '..');
+const sheetsDir = path.join(root, 'drive-backup', 'Wedding', 'Sheets');
+const { SHEETS, DEFAULT_SETTINGS } = loadBackend();
+const csv = name => parseCsv(fs.readFileSync(path.join(sheetsDir, name + '.csv'), 'utf8'));
+
+test('every backend sheet has a CSV with the exact header row', () => {
+  Object.keys(SHEETS).forEach(name => {
+    assert.ok(fs.existsSync(path.join(sheetsDir, name + '.csv')), name + '.csv missing');
+    assert.deepEqual(csv(name)[0], SHEETS[name], name + '.csv header');
+  });
+});
+
+test('no stale CSV without a backend sheet', () => {
+  fs.readdirSync(sheetsDir).filter(f => f.endsWith('.csv')).forEach(f => assert.ok(SHEETS[f.slice(0, -4)], f + ' is not a backend sheet'));
+});
+
+test('Settings.csv contains every default setting', () => {
+  const keys = csv('Settings').slice(1).map(r => r[0]);
+  const missing = DEFAULT_SETTINGS.map(r => r[0]).filter(k => keys.indexOf(k) < 0);
+  assert.deepEqual(missing, []);
+});
+
+test('default settings are well-formed and unique', () => {
+  const seen = {};
+  DEFAULT_SETTINGS.forEach(r => {
+    assert.ok(Array.isArray(r) && r.length === 5, 'bad row ' + JSON.stringify(r));
+    assert.ok(!seen[r[0]], 'duplicate ' + r[0]); seen[r[0]] = 1;
+    assert.match(r[2], /^(text|number|toggle|color|datetime|select:.+)$/, r[0] + ' type');
+  });
+});
+
+test('fields written to Gifts/Guests/Admins exist as columns (nothing silently dropped)', () => {
+  const code = fs.readFileSync(path.join(root, 'apps-script', 'Code.gs'), 'utf8');
+  ['Relation', 'Source', 'Phone', 'EventId', 'Anon', 'EnteredBy', 'PhotoId', 'AuditStatus', 'AuditNote'].forEach(c => assert.ok(SHEETS.Gifts.includes(c), 'Gifts.' + c));
+  assert.ok(SHEETS.Admins.includes('Duties'));
+  assert.ok(SHEETS.Guests.includes('Table') && SHEETS.Guests.includes('LinkRevoked'));
+  assert.match(code, /'admin\.setTable'.*Table:/);
+});
+
+test('Drive folders exist', () => {
+  ['Backups', 'Gift QR', 'Invitations', 'Logs', 'Proofs', 'Uploads'].forEach(f =>
+    assert.ok(fs.existsSync(path.join(root, 'drive-backup', 'Wedding', f)), 'Wedding/' + f));
+});

@@ -1,0 +1,45 @@
+﻿# Day-of Runbook
+
+## Roles
+| Role | Who | Can do |
+|---|---|---|
+| owner | Couple | Everything (settings, admins, gifts) |
+| manager | 1–2 trusted family members | Guests, check-in, live banner, rituals, moderation |
+| helper | Gate/venue volunteers | Check-in and age verification only |
+
+Add admins in **Admin → Admins**. Each person gets their own passcode.
+
+Helpers can be limited to **duties** (Door, Bar, Gifts, Live) in the Team tab. Use **Phones down** in the Live tab during rituals, **Start audit** in Gifts to reconcile envelopes, and the **Emergency blast** builder to copy the phone numbers of guests who have not checked in. Step-by-step instructions are in [ADMIN_OPS.md](ADMIN_OPS.md).
+
+## One week before
+- [ ] Move the repo out of the work OneDrive to a personal account/machine.
+- [ ] Set `API_URL` in `js/config.js` to the deployed `/exec` URL.
+- [ ] Script Properties: `GITHUB_TOKEN` (fine-grained PAT, this repo only, Contents read/write), `GITHUB_REPO` (`owner/repo`), optional `GITHUB_BRANCH`, `GITHUB_PATH`.
+- [ ] Run `setup` again. It installs the `publishLiveTick` (5 min), `healthCheck` (hourly), and `nightlyBackup` triggers.
+- [ ] Custom domain: `CNAME` contains `prajandswosti.com`. In GitHub → Settings → Pages, set the custom domain and enable **Enforce HTTPS**. At your DNS provider, add A records `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153` and a `www` CNAME to `<owner>.github.io`.
+- [ ] Confirm `https://prajandswosti.com/live.json` updates after posting a test banner (optional Script Property `SITE_URL` overrides the domain).
+- [ ] Run the load test: `node tests/load/load-test.js <API_URL> 50 getConfig` (p95 under ~5 s, 0 errors).
+- [ ] Open the site on an iPhone, an Android phone, and inside WhatsApp/Messenger in-app browsers.
+- [ ] Set `app.helpPhone` (shown as a big call button in Elder Mode) and `media.largeAlbumUrl`.
+- [ ] Print the guest list (Admin → Guests → export) as a paper check-in fallback.
+
+## During events
+- **Post a banner:** Admin → Live. Guests see it within about 20 s through `live.json`.
+- **Advance the ritual:** Admin → Rituals → **Now**.
+- **Turn a feature off:** Admin → Settings → toggle `feature.*` (takes effect within about 60 s because of the config cache).
+- **Morning, on Wi-Fi:** each door volunteer opens Admin → **Door** once. The full guest list is saved on the phone.
+- **Check-in:** tap **Scan QR** (Android Chrome) or type the first 3 letters of the name and tap **Check in**. If a scan fails within 3 seconds, switch to the name search. With no signal, check-ins are saved on the phone and sync automatically when the network returns (the status line shows how many are waiting). Don't sign out or clear the browser until it says "all synced".
+- **Guests:** ask them to turn up screen brightness. Guests who lost their link use **Sign in → Lost your link? Find my pass** (phone + surname).
+- **Uploads:** remind guests to open the link in Chrome/Safari (not inside WhatsApp/Viber) and keep the page open until the ✅ appears.
+
+## If something breaks
+| Symptom | Action |
+|---|---|
+| Health email: errors | Open the Apps Script **Executions** view and read the latest failure. |
+| Health email: mail quota | Registration still works; only confirmation emails stop. |
+| Health email: live.json | The PAT may have expired. Create a new one and update Script Properties. Phones fall back to the API automatically. |
+| Apps Script down / quota | Use the paper check-in list. Turn off `feature.games` and `feature.media` to reduce load. |
+| Wrong data | Restore from Drive `Wedding/Backups/<date>` (nightly copy). |
+
+## Contacts
+- Tech lead: ______  ·  Backup: ______

@@ -1,0 +1,38 @@
+
+Running 1 test using 1 worker
+
+[1/1] e2e\crawl.spec.js:84:3 › crawl admin/planner.html as admin
+  1) e2e\crawl.spec.js:84:3 › crawl admin/planner.html as admin ────────────────────────────────────
+
+    Test timeout of 300000ms exceeded.
+
+    Error: locator.count: Target page, context or browser has been closed
+
+      38 | async function clickAll(page, startUrl) {
+      39 |   const sel = 'button:visible, [role="tab"]:visible, a[href^="#"]:visible';
+    > 40 |   const n = Math.min(await page.locator(sel).count(), 80);
+         |                                              ^
+      41 |   for (let i = 0; i < n; i++) {
+      42 |     const b = page.locator(sel).nth(i);
+      43 |     if (!(await b.isVisible().catch(() => false))) continue;
+        at clickAll (C:\Users\eu01242003\OneDrive - State of Minnesota - MN365\Desktop\proj\tests\e2e\crawl.spec.js:40:46)
+        at crawl (C:\Users\eu01242003\OneDrive - State of Minnesota - MN365\Desktop\proj\tests\e2e\crawl.spec.js:58:11)
+        at C:\Users\eu01242003\OneDrive - State of Minnesota - MN365\Desktop\proj\tests\e2e\crawl.spec.js:88:5
+
+    Error Context: test-results\crawl-crawl-admin-planner-html-as-admin\error-context.md
+
+
+[MCR] Wedding app coverage
+┌────────────┬────────────┬─────────┬───────────┬─────────┐
+│ Name       │ Coverage % │ Covered │ Uncovered │   Total │
+├────────────┼────────────┼─────────┼───────────┼─────────┤
+│ Bytes      │    33.66 % │  35,726 │    70,411 │ 106,137 │
+│ Statements │    21.51 % │     216 │       788 │   1,004 │
+│ Branches   │    11.38 % │     116 │       903 │   1,019 │
+│ Functions  │    16.24 % │      69 │       356 │     425 │
+│ Lines      │    31.56 % │     428 │       928 │   1,356 │
+└────────────┴────────────┴─────────┴───────────┴─────────┘
+  Slow test file: e2e\crawl.spec.js (5.0m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  1 failed
+    e2e\crawl.spec.js:84:3 › crawl admin/planner.html as admin ─────────────────────────────────────

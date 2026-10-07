@@ -1,0 +1,20 @@
+﻿# Reviewed ideas: status
+
+| Idea | Status | Notes |
+|---|---|---|
+| Static `live.json` instead of polling Apps Script | Implemented | `apps-script/Live.gs` publishes to GitHub. Phones poll the static file and fall back to the API. |
+| Lock public writes | Implemented | `PUBLIC_WRITE_ACTIONS` + `withLock_` in `Code.gs` |
+| Guest/pass caching | Implemented | Versioned CacheService keys, invalidated on writes, and capped at the next reveal unlock |
+| Bride vs Groom team battle | Done (extended) | Check-in points (`points.checkIn`) and on-time bonus (`points.onTime`) were added. |
+| EXIF auto-sort uploads into events | Implemented | `App.takenAt` + `eventForTime_` (client and server) |
+| Large-file fallback | Implemented | Shows a warning plus a `media.largeAlbumUrl` link. |
+| Elder Mode | Implemented | A+ toggle, large text, essentials only, help call button |
+| Offline pass at the gate | Implemented | Last pass is saved in localStorage. |
+| Serif memorial typography | Implemented | `css/memorial.css` |
+| Accessibility (touch targets, focus, reduced motion) | Implemented | `css/mobile.css` |
+| Printable memory book | Implemented | Admin → Memorial → Memory book (browser print to PDF keeps Devanagari intact). |
+| Health monitoring | Implemented | `apps-script/Health.gs` hourly email |
+| React / Tailwind / shadcn prompts | Not applicable | The app is vanilla HTML/JS with no build step. |
+| gviz CSV reads from the Sheet | Not applicable | It requires a public sheet and would expose guest data. |
+| wsrv.nl image proxy | Optional | Drive thumbnails plus service-worker caching are enough for now. |
+| Full EXIF library | Future | The current parser is heuristic; fall back to `lastModified`. |

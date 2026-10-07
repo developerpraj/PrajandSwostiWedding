@@ -1,0 +1,344 @@
+﻿(function () {
+  const $ = id => document.getElementById(id);
+  const esc = s => App.esc(s);
+  const msg = (t, type) => App.msg($('msg'), t, type);
+  let guests = [], rooms = [], requests = [], timer = null;
+
+  const siteRoot = () => location.origin + location.pathname.replace(/admin\/[^/]*$/, '');
+  const inviteUrl = id => siteRoot() + 'index.html?g=' + encodeURIComponent(id);
+  const yes = v => v === true || String(v).toUpperCase() === 'TRUE';
+
+  async function call(action, data) {
+    try { return await API.call(action, data); }
+    catch (e) {
+      if (e.message === 'unauthorized') { sessionStorage.removeItem('adminKey'); location.reload(); }
+      msg(e.message, 'err');
+      throw e;
+    }
+  }
+
+  // ---------- Login ----------
+  $('loginForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    sessionStorage.setItem('adminKey', e.target.key.value);
+    try { await API.call('admin.login'); start(); }
+    catch (err) { sessionStorage.removeItem('adminKey'); msg('Invalid passcode', 'err'); }
+  });
+  $('logout').addEventListener('click', e => { e.preventDefault(); sessionStorage.removeItem('adminKey'); location.reload(); });
+
+  function start() {
+    $('loginForm').hidden = true;
+    $('app').hidden = false;
+    $('logout').hidden = false;
+    msg('');
+    refreshStats();
+    timer = setInterval(refreshStats, APP_CONFIG.ADMIN_REFRESH_MS);
+    loadGuests();
+  }
+
+  // ---------- Tabs ----------
+  $('tabs').addEventListener('click', e => {
+    const b = e.target.closest('button[data-tab]');
+    if (!b) return;
+    document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('active', x === b));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + b.dataset.tab));
+    ({ guests: loadGuests, acc: loadRooms, memorial: loadMemorial, settings: loadSettings, people: loadPeople, media: loadMedia, games: loadGames }[b.dataset.tab] || (() => { }))();
+  });
+
+  // ---------- Dashboard (real-time via polling) ----------
+  async function refreshStats() {
+    let s;
+    try { s = await API.call('admin.stats'); } catch (e) { return; }
+    $('updatedAt').textContent = new Date(s.updatedAt).toLocaleTimeString();
+    const card = (n, l) => '<div class="card stat"><div class="n">' + esc(n) + '</div><div class="l">' + esc(l) + '</div></div>';
+    $('stats').innerHTML = [
+      card(s.invited, 'Invitations (' + s.invitedPeople + ' people)'),
+      card(s.registered, 'Registered'),
+      card(s.attendingPeople, 'Attending people (' + s.attendingGuests + ' invites)'),
+      card(s.maybe, 'Maybe'),
+      card(s.notAttending, 'Not attending'),
+      card(s.pending, 'Not registered yet'),
+      card(s.brideSide + ' / ' + s.groomSide, 'Bride side / Groom side'),
+      card(s.checkedIn, 'Checked in')
+    ].join('');
+    $('perEvent').innerHTML = '<tr><th>Event</th><th>Yes (people)</th><th>Maybe</th><th>No</th></tr>' +
+      s.perEvent.map(e => '<tr><td>' + esc(e.nameEn || e.eventId) + '<div class="muted">' + esc(e.nameNe || '') + '</div></td><td>' + e.yes + '</td><td>' + e.maybe + '</td><td>' + e.no + '</td></tr>').join('');
+    $('meals').innerHTML = Object.keys(s.meals).map(k => '<tr><td>' + esc(k) + '</td><td>' + s.meals[k] + '</td></tr>').join('') || '<tr><td>—</td></tr>';
+    $('bands').innerHTML = [['green', 'ID verified'], ['yellow', 'Self-declared (check ID)'], ['red', 'Under age'], ['blue', 'Non-drinker']]
+      .map(b => '<tr><td><span class="band ' + b[0] + '">' + b[1] + '</span></td><td>' + s.bands[b[0]] + '</td></tr>').join('');
+    const a = s.accommodation;
+    $('accStats').innerHTML = '<tr><td>Eligible guests</td><td>' + a.eligible + '</td></tr><tr><td>Requested</td><td>' + a.requested +
+      '</td></tr><tr><td>Assigned</td><td>' + a.assigned + '</td></tr><tr><td>People needing rooms</td><td>' + a.people +
+      '</td></tr><tr><td>Total capacity</td><td>' + a.capacity + '</td></tr>';
+  }
+
+  $('exportCsv').addEventListener('click', async () => {
+    const rows = await call('admin.guests');
+    if (!rows.length) return;
+    const cols = Object.keys(rows[0]);
+    const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => '"' + String(r[c] == null ? '' : r[c]).replace(/"/g, '""') + '"').join(','))).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' }));
+    a.download = 'guests.csv';
+    a.click();
+  });
+
+  // ---------- Guests ----------
+  async function loadGuests() {
+    guests = await call('admin.guests');
+    renderGuests();
+  }
+
+  function renderGuests() {
+    const q = ($('guestSearch').value || '').toLowerCase();
+    const list = guests.filter(g => !q || JSON.stringify(g).toLowerCase().indexOf(q) >= 0);
+    $('guestTable').innerHTML = '<tr><th>Guest</th><th>Side / Relation</th><th>Status</th><th>People</th><th>Age / Band</th><th>Accommodation</th><th>Checked in</th><th>Actions</th></tr>' +
+      list.map(g => {
+        const wa = g.Phone ? 'https://wa.me/' + String(g.Phone).replace(/\D/g, '') + '?text=' + encodeURIComponent('Namaste ' + g.Name + ' 🙏 Please register for our wedding: ' + inviteUrl(g.GuestId)) : '';
+        return '<tr data-id="' + esc(g.GuestId) + '">' +
+          '<td><b>' + esc(g.Name) + '</b><div class="muted">' + esc(g.NameNe || '') + ' · ' + esc(g.GuestId) + '</div></td>' +
+          '<td>' + esc(g.Side) + '<div class="muted">' + esc(g.Relation || '') + '</div></td>' +
+          '<td>' + esc(yes(g.Registered) ? g.Status : 'Not registered') + (yes(g.InviteOpened) ? ' 👀' : '') + '</td>' +
+          '<td>' + esc(g.AttendingCount || 0) + ' / ' + esc(g.AdmitCount) + '</td>' +
+          '<td>' + esc(g.Age) + ' <span class="band ' + esc(g.Band) + '">' + esc(g.Band) + '</span><br>' +
+          '<label class="check"><input type="checkbox" data-act="verify"' + (yes(g.AgeVerified) ? ' checked' : '') + '> ID verified</label></td>' +
+          '<td><label class="check"><input type="checkbox" data-act="acc"' + (yes(g.AccommodationEligible) ? ' checked' : '') + '> Offer</label></td>' +
+          '<td>' + (yes(g.CheckedIn) ? '✅' : '<button class="btn sm" data-act="checkin">Check in</button>') + '</td>' +
+          '<td><button class="btn ghost sm" data-act="edit">Edit</button> <button class="btn ghost sm" data-act="copy">Copy link</button>' +
+          (wa ? ' <a class="btn alt sm" target="_blank" rel="noopener" href="' + esc(wa) + '">WhatsApp</a>' : '') + '</td></tr>';
+      }).join('');
+  }
+
+  $('guestSearch').addEventListener('input', renderGuests);
+
+  $('guestTable').addEventListener('click', async e => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const id = el.closest('tr').dataset.id;
+    const g = guests.find(x => x.GuestId === id);
+    const act = el.dataset.act;
+    if (act === 'verify') await call('admin.verifyAge', { guestId: id, value: el.checked });
+    else if (act === 'acc') await call('admin.setAccommodationEligible', { guestId: id, value: el.checked });
+    else if (act === 'checkin') await call('admin.checkIn', { guestId: id });
+    else if (act === 'copy') { await navigator.clipboard.writeText(inviteUrl(id)); msg('Link copied', 'ok'); return; }
+    else if (act === 'edit') { fillGuestForm(g); return; }
+    else return;
+    loadGuests();
+  });
+
+  function fillGuestForm(g) {
+    const f = $('guestForm');
+    ['GuestId', 'Name', 'NameNe', 'Family', 'Side', 'Relation', 'RelationNe', 'Groups', 'Phone', 'Email', 'AdmitCount', 'Table']
+      .forEach(k => f[k].value = g[k] == null ? '' : g[k]);
+    f.AccommodationEligible.checked = yes(g.AccommodationEligible);
+    f.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  $('guestForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target).entries());
+    d.AccommodationEligible = e.target.AccommodationEligible.checked ? 'TRUE' : 'FALSE';
+    await call('admin.saveGuest', d);
+    e.target.reset();
+    e.target.GuestId.value = '';
+    msg('Guest saved', 'ok');
+    loadGuests();
+  });
+
+  $('csvFile').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const rows = parseCsv(await file.text());
+    if (!rows.length) { msg('No rows found', 'err'); return; }
+    const n = await call('admin.importGuests', { rows: rows });
+    msg('Imported ' + n + ' guests', 'ok');
+    e.target.value = '';
+    loadGuests();
+  });
+
+  function parseCsv(text) {
+    const lines = text.replace(/^\ufeff/, '').split(/\r?\n/).filter(l => l.trim());
+    const split = l => {
+      const out = []; let cur = '', q = false;
+      for (let i = 0; i < l.length; i++) {
+        const c = l[i];
+        if (q) { if (c === '"' && l[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+        else if (c === '"') q = true; else if (c === ',') { out.push(cur); cur = ''; } else cur += c;
+      }
+      out.push(cur);
+      return out.map(x => x.trim());
+    };
+    const head = split(lines.shift() || '');
+    return lines.map(l => { const v = split(l); const o = {}; head.forEach((h, i) => o[h] = v[i] || ''); return o; }).filter(o => o.Name);
+  }
+
+  // ---------- Accommodation ----------
+  async function loadRooms() {
+    const r = await call('admin.rooms');
+    rooms = r.rooms; requests = r.requests;
+    if (!guests.length) guests = await call('admin.guests');
+    const used = {};
+    requests.filter(q => q.RoomId).forEach(q => used[q.RoomId] = (used[q.RoomId] || 0) + Number(q.People || 0));
+    $('roomTable').innerHTML = '<tr><th>Room</th><th>Location</th><th>Capacity</th><th>Assigned people</th><th>Dates</th><th>Notes</th></tr>' +
+      rooms.map(x => '<tr><td>' + esc(x.Name) + '</td><td>' + esc(x.Location) + '</td><td>' + esc(x.Capacity) + '</td><td>' + (used[x.RoomId] || 0) +
+        '</td><td>' + esc(String(x.CheckIn).slice(0, 10)) + ' → ' + esc(String(x.CheckOut).slice(0, 10)) + '</td><td>' + esc(x.Notes) + '</td></tr>').join('');
+    const roomOpts = sel => '<option value="">— none —</option>' + rooms.map(x =>
+      '<option value="' + esc(x.RoomId) + '"' + (x.RoomId === sel ? ' selected' : '') + '>' + esc(x.Name) + ' (' + esc(x.Capacity) + ')</option>').join('');
+    $('reqTable').innerHTML = '<tr><th>Guest</th><th>Nights</th><th>People</th><th>Needs</th><th>Status</th><th>Assign room</th></tr>' +
+      requests.map(q => {
+        const g = guests.find(x => x.GuestId === q.GuestId) || {};
+        return '<tr data-req="' + esc(q.RequestId) + '"><td>' + esc(g.Name || q.GuestId) + '</td><td>' + esc(q.Nights) + '</td><td>' + esc(q.People) +
+          '</td><td>' + esc(q.Needs) + '</td><td>' + esc(q.Status) + '</td><td><select data-assign>' + roomOpts(q.RoomId) + '</select></td></tr>';
+      }).join('');
+  }
+
+  $('reqTable').addEventListener('change', async e => {
+    if (!e.target.matches('[data-assign]')) return;
+    await call('admin.assignRoom', { requestId: e.target.closest('tr').dataset.req, roomId: e.target.value });
+    msg('Room updated', 'ok');
+    loadRooms();
+  });
+
+  $('roomForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    await call('admin.saveRoom', Object.fromEntries(new FormData(e.target).entries()));
+    e.target.reset();
+    msg('Room saved', 'ok');
+    loadRooms();
+  });
+
+  // ---------- Live ----------
+  $('liveForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    await call('admin.postLive', Object.fromEntries(new FormData(e.target).entries()));
+    msg('Live update posted', 'ok');
+    e.target.reset();
+  });
+  $('clearLive').addEventListener('click', async () => { await call('admin.postLive', {}); msg('Banner cleared', 'ok'); });
+
+  // ---------- People (households + remembered relatives) ----------
+  let people = [];
+  async function loadPeople() { people = await call('admin.people'); renderPeople(); }
+  function renderPeople() {
+    const q = $('peopleSearch').value.toLowerCase();
+    $('peopleTable').innerHTML = '<tr><th>Name</th><th>Household</th><th>Relation</th><th>Side</th><th>Band</th><th>In</th><th></th></tr>' +
+      people.filter(p => !q || JSON.stringify(p).toLowerCase().indexOf(q) >= 0).map(p =>
+        '<tr data-m="' + esc(p.MemberId) + '"><td>' + esc(p.Name) + '<div class="muted">' + esc(p.NameNe || '') + '</div></td><td>' + esc(p.Household) +
+        '</td><td>' + esc(p.RelationTo) + ' · ' + esc(p.RelationType) + '<div class="muted">' + esc(p.Relation || '') + '</div></td><td><span class="side-tag ' + esc(p.Side) + '">' +
+        esc(p.Side) + '</span></td><td>' + (p.Band ? '<span class="band ' + esc(p.Band) + '">' + esc(p.Band) + '</span>' : '') + '</td><td>' + (yes(p.CheckedIn) ? '✅' : '') +
+        '</td><td><button class="btn sm" data-act="in">Check in</button> <button class="btn ghost sm" data-act="age">ID ok</button></td></tr>').join('');
+  }
+  $('peopleSearch').addEventListener('input', renderPeople);
+  $('peopleTable').addEventListener('click', async e => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const memberId = b.closest('tr').dataset.m;
+    await call(b.dataset.act === 'in' ? 'admin.checkInMember' : 'admin.verifyMember', { memberId: memberId, value: true });
+    loadPeople();
+  });
+
+  // ---------- Photos ----------
+  async function loadMedia() {
+    const url = siteRoot() + 'photos.html';
+    $('photoLink').href = url; $('photoLink').textContent = url;
+    $('photoQr').innerHTML = '';
+    if (window.QRCode) new QRCode($('photoQr'), { text: url, width: 220, height: 220 });
+    const rows = await call('admin.media');
+    $('mediaTable').innerHTML = '<tr><th>Preview</th><th>By</th><th>Type</th><th>Status</th><th></th></tr>' + rows.map(r =>
+      '<tr data-media="' + esc(r.MediaId) + '"><td><a target="_blank" href="https://drive.google.com/file/d/' + esc(r.DriveFileId) + '/view">' +
+      '<img loading="lazy" style="width:70px;height:70px;object-fit:cover" src="https://drive.google.com/thumbnail?id=' + esc(r.DriveFileId) + '&sz=w200" alt=""></a></td><td>' +
+      esc(r.Name) + '<div class="muted">' + esc(r.Side || '') + '</div></td><td>' + esc(r.Type) + '</td><td>' + esc(r.Status) + '</td><td>' +
+      '<button class="btn sm" data-status="Approved">Show</button> <button class="btn ghost sm" data-status="Hidden">Hide</button></td></tr>').join('');
+  }
+  $('mediaTable').addEventListener('click', async e => {
+    const b = e.target.closest('[data-status]');
+    if (!b) return;
+    await call('admin.moderateMedia', { mediaId: b.closest('tr').dataset.media, status: b.dataset.status });
+    loadMedia();
+  });
+
+  // ---------- Games ----------
+  let games = [];
+  async function loadGames() {
+    games = await call('admin.games');
+    $('gameTable').innerHTML = '<tr><th>Game</th><th>Who</th><th>Points</th><th>Active</th><th></th></tr>' + games.map(g =>
+      '<tr data-g="' + esc(g.GameId) + '"><td>' + esc(g.TitleEn) + '<div class="muted">' + esc(g.QuestionEn || '') + '</div></td><td>' + esc(g.Groups) +
+      '</td><td>' + esc(g.Points) + '</td><td>' + (yes(g.Active) ? '✅' : '') + '</td><td><button class="btn sm" data-edit>Edit</button></td></tr>').join('');
+  }
+  $('gameTable').addEventListener('click', e => {
+    if (!e.target.closest('[data-edit]')) return;
+    const g = games.find(x => x.GameId === e.target.closest('tr').dataset.g);
+    const f = $('gameForm');
+    Object.keys(g).forEach(k => { if (f[k]) { if (f[k].type === 'checkbox') f[k].checked = yes(g[k]); else f[k].value = g[k]; } });
+    f.scrollIntoView({ behavior: 'smooth' });
+  });
+  $('gameForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target).entries());
+    d.Active = e.target.Active.checked;
+    await call('admin.saveGame', d);
+    e.target.reset();
+    msg('Game saved 🎲', 'ok');
+    loadGames();
+  });
+
+  // ---------- Memorial ----------
+  async function loadMemorial() {
+    try {
+      const m = await API.call('getMemorial');
+      const f = $('momForm');
+      Object.keys(m.profile || {}).forEach(k => { if (f[k]) f[k].value = m.profile[k]; });
+    } catch (e) { /* memorial may be disabled */ }
+    const rows = await call('admin.memories');
+    $('memTable').innerHTML = '<tr><th>From</th><th>Memory</th><th>Private</th><th>Status</th><th></th></tr>' +
+      rows.slice().reverse().map(r => '<tr data-mem="' + esc(r.MemoryId) + '"><td>' + esc(r.Name) + '<div class="muted">' + esc(r.Relation) + '</div></td><td style="white-space:pre-wrap">' +
+        esc(r.Text) + '</td><td>' + (yes(r.IsPrivate) ? '🔒' : '') + '</td><td>' + esc(r.Status) + '</td><td>' +
+        '<button class="btn sm" data-status="Approved">Approve</button> <button class="btn ghost sm" data-status="Hidden">Hide</button></td></tr>').join('');
+  }
+
+  $('memTable').addEventListener('click', async e => {
+    const b = e.target.closest('[data-status]');
+    if (!b) return;
+    await call('admin.moderateMemory', { memoryId: b.closest('tr').dataset.mem, status: b.dataset.status });
+    loadMemorial();
+  });
+
+  $('momForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    await call('admin.saveMom', Object.fromEntries(new FormData(e.target).entries()));
+    msg("Mom's profile saved 🙏", 'ok');
+  });
+
+  // ---------- Settings ----------
+  async function loadSettings() {
+    const rows = await call('admin.settings');
+    $('settingsTable').innerHTML = '<tr><th>Setting</th><th>Value</th><th>Group</th></tr>' + rows.map(r => {
+      const t = String(r.Type || 'text');
+      const v = String(r.Value);
+      let input;
+      if (t === 'toggle') input = '<input type="checkbox"' + (yes(v) ? ' checked' : '') + '>';
+      else if (t === 'color') input = '<input type="color" value="' + esc(v) + '">';
+      else if (t === 'number') input = '<input type="number" value="' + esc(v) + '">';
+      else if (t === 'datetime') input = '<input type="datetime-local" value="' + esc(v.slice(0, 16)) + '">';
+      else if (t.indexOf('select:') === 0) input = '<select>' + t.slice(7).split(',').map(o => '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>';
+      else input = '<input value="' + esc(v) + '">';
+      return '<tr data-key="' + esc(r.Key) + '" data-type="' + esc(t) + '"><td><b>' + esc(r.Description || r.Key) + '</b><div class="muted">' + esc(r.Key) + '</div></td><td>' + input + '</td><td>' + esc(r.Group) + '</td></tr>';
+    }).join('');
+  }
+
+  $('settingsTable').addEventListener('change', async e => {
+    const tr = e.target.closest('tr[data-key]');
+    if (!tr) return;
+    const value = tr.dataset.type === 'toggle' ? (e.target.checked ? 'TRUE' : 'FALSE') : e.target.value;
+    await call('admin.saveSetting', { key: tr.dataset.key, value: value });
+    sessionStorage.removeItem('config');
+    msg('Saved: ' + tr.dataset.key, 'ok');
+  });
+
+  // ---------- Boot ----------
+  I18N.apply();
+  App.langSwitcher($('langSwitch'));
+  if (sessionStorage.getItem('adminKey')) {
+    API.call('admin.login').then(start).catch(() => sessionStorage.removeItem('adminKey'));
+  }
+})();

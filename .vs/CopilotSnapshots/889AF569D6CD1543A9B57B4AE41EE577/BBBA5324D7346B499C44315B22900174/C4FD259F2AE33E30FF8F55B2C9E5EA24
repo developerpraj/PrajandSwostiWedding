@@ -1,0 +1,162 @@
+﻿(async function () {
+  const msg = document.getElementById('msg');
+  const form = document.getElementById('regForm');
+  const accForm = document.getElementById('accForm');
+  let cfg, data;
+
+  try { cfg = await App.boot(); } catch (e) { App.msg(msg, e.message, 'err'); return; }
+
+  const id = App.guestId();
+  if (!id) { App.msg(msg, I18N.t('common.invalidLink'), 'err'); return; }
+  if (!App.on(cfg, 'feature.registration') || !App.on(cfg, 'registration.open')) { App.msg(msg, I18N.t('reg.closed'), 'err'); return; }
+
+  try { data = await API.call('getGuest', { guestId: id }); }
+  catch (e) { App.msg(msg, I18N.t('common.invalidLink'), 'err'); return; }
+
+  const g = data.guest;
+  App.remember(data.members, data.memberId);
+  App.setSide(g.Side, cfg);
+  const max = g.AdmitCount || 1;
+  document.getElementById('maxCount').textContent = max;
+  accForm.People.max = max;
+  const showDrink = App.on(cfg, 'feature.drinkBand');
+  document.getElementById('nonDrinkerRow').hidden = !showDrink;
+
+  const relTo = cfg.relationTo || ['Bride', 'Groom', "Bride's family", "Groom's family", 'Both'];
+  const relTypes = cfg.relationTypes || ['Family', 'Friend', 'Colleague', 'Neighbor', 'Other'];
+  function fillSelects(root) {
+    root.querySelectorAll('select.rel-to').forEach(s => {
+      const v = s.value || s.dataset.value || '';
+      s.innerHTML = '<option value="">—</option>' + relTo.map(r => '<option value="' + App.esc(r) + '">' + App.esc(I18N.t('rel.' + r)) + '</option>').join('');
+      s.value = v;
+    });
+    root.querySelectorAll('select.rel-type').forEach(s => {
+      const v = s.value || s.dataset.value || '';
+      s.innerHTML = '<option value="">—</option>' + relTypes.map(r => '<option value="' + App.esc(r) + '">' + App.esc(I18N.t('type.' + r)) + '</option>').join('');
+      s.value = v;
+    });
+  }
+  fillSelects(form);
+
+  ['Name', 'NameNe', 'Phone', 'Email', 'Relation', 'RelationNe', 'Meal', 'Allergies', 'Arrival', 'Departure'].forEach(k => {
+    if (g[k]) form[k].value = String(g[k]).slice(0, k === 'Arrival' || k === 'Departure' ? 10 : 200);
+  });
+  if (g.RelationTo) form.RelationTo.value = g.RelationTo;
+  else if (g.Side === 'Bride' || g.Side === 'Groom') form.RelationTo.value = g.Side + "'s family";
+  if (g.RelationType) form.RelationType.value = g.RelationType;
+  if (g.DOB) form.DOB.value = String(g.DOB).slice(0, 10);
+  if (g.Status && g.Status !== 'Pending') form.Status.value = g.Status;
+  form.NonDrinker.checked = !!g.NonDrinker;
+  const sideOf = r => /^Bride/.test(r) ? 'Bride' : /^Groom/.test(r) ? 'Groom' : r ? 'Both' : '';
+  form.RelationTo.addEventListener('change', () => App.setSide(sideOf(form.RelationTo.value), cfg));
+
+  // ---------- Family members (remembered on this phone) ----------
+  const famBox = document.getElementById('family');
+  const addBtn = document.getElementById('addMember');
+  function memberRow(m) {
+    m = m || {};
+    const div = document.createElement('div');
+    div.className = 'card member-row';
+    div.dataset.id = m.MemberId || '';
+    div.innerHTML =
+      '<div class="grid">' +
+      '<div><label>' + App.esc(I18N.t('reg.name')) + '</label><input data-k="Name" required maxlength="80" value="' + App.esc(m.Name || '') + '"></div>' +
+      '<div><label>' + App.esc(I18N.t('reg.nameNe')) + '</label><input data-k="NameNe" maxlength="80" value="' + App.esc(m.NameNe || '') + '"></div>' +
+      '<div><label>' + App.esc(I18N.t('rel.to')) + '</label><select data-k="RelationTo" class="rel-to" required data-value="' + App.esc(m.RelationTo || form.RelationTo.value) + '"></select></div>' +
+      '<div><label>' + App.esc(I18N.t('rel.type')) + '</label><select data-k="RelationType" class="rel-type" data-value="' + App.esc(m.RelationType || 'Family') + '"></select></div>' +
+      '<div><label>' + App.esc(I18N.t('reg.relation')) + '</label><input data-k="Relation" list="relations" maxlength="60" value="' + App.esc(m.Relation || '') + '"></div>' +
+      '<div><label>' + App.esc(I18N.t('reg.dob')) + '</label><input data-k="DOB" type="date" value="' + App.esc(String(m.DOB || '').slice(0, 10)) + '"></div>' +
+      '</div>' +
+      '<label class="check"><input type="checkbox" data-k="Attending"' + (m.Attending === false ? '' : ' checked') + '> ' + App.esc(I18N.t('fam.attending')) + '</label> ' +
+      (showDrink ? '<label class="check"><input type="checkbox" data-k="NonDrinker"' + (m.NonDrinker ? ' checked' : '') + '> ' + App.esc(I18N.t('reg.nonDrinker')) + '</label> ' : '') +
+      '<button type="button" class="btn ghost" data-remove>' + App.esc(I18N.t('fam.remove')) + '</button>';
+    div.querySelector('[data-remove]').onclick = () => { div.remove(); updateAdd(); };
+    famBox.appendChild(div);
+    fillSelects(div);
+    updateAdd();
+  }
+  function updateAdd() { addBtn.hidden = famBox.children.length + 1 >= max; }
+  (data.members || []).filter(m => !m.IsPrimary).forEach(memberRow);
+  addBtn.onclick = () => memberRow();
+  updateAdd();
+  function readMembers() {
+    return [...famBox.querySelectorAll('.member-row')].map(row => {
+      const o = { MemberId: row.dataset.id };
+      row.querySelectorAll('[data-k]').forEach(el => o[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value);
+      return o;
+    }).filter(m => m.Name);
+  }
+
+  const rsvpMap = {};
+  (data.rsvps || []).forEach(r => rsvpMap[r.EventId] = r);
+
+  function renderEvents() {
+    const box = document.getElementById('events');
+    if (!data.events.length) { box.innerHTML = '<p class="muted">—</p>'; return; }
+    box.innerHTML = data.events.map(ev => {
+      if (ev.locked) {
+        return '<div class="event-row locked"><span>🔒 ' + App.esc(I18N.t('reg.locked')) + '</span></div>';
+      }
+      const r = rsvpMap[ev.EventId] || {};
+      const resp = r.Response || '';
+      const when = ev.DateTime ? new Date(ev.DateTime).toLocaleString() : '';
+      const opts = ['Yes', 'Maybe', 'No'].map(o =>
+        '<label><input type="radio" name="ev_' + App.esc(ev.EventId) + '" value="' + o + '"' + (resp === o ? ' checked' : '') +
+        '><span>' + App.esc(I18N.t('rsvp.' + o)) + '</span></label>').join('');
+      return '<div class="event-row" data-event="' + App.esc(ev.EventId) + '">' +
+        '<div><b>' + App.esc(I18N.bi(ev.NameEn, ev.NameNe)) + '</b><div class="muted">' + App.esc(when) + ' · ' + App.esc(ev.Venue || '') + '</div></div>' +
+        '<div><span class="seg">' + opts + '</span> ' +
+        '<input type="number" class="ev-count" min="0" max="' + max + '" value="' + (r.Count !== undefined && r.Count !== '' ? r.Count : max) + '" style="width:70px"></div></div>';
+    }).join('');
+  }
+  renderEvents();
+  document.addEventListener('langchange', () => { renderEvents(); fillSelects(form); });
+  form.hidden = false;
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    const f = Object.fromEntries(new FormData(form).entries());
+    f.NonDrinker = form.NonDrinker.checked;
+    const events = [...document.querySelectorAll('#events [data-event]')].map(row => {
+      const sel = row.querySelector('input[type=radio]:checked');
+      return { EventId: row.dataset.event, Response: sel ? sel.value : '', Count: row.querySelector('.ev-count').value };
+    }).filter(x => x.Response);
+    try {
+      const r = await API.call('register', { guestId: id, form: f, events: events, members: readMembers() });
+      App.remember(r.members, r.primaryMemberId);
+      App.setSide(sideOf(f.RelationTo), cfg);
+      App.msg(msg, I18N.t('reg.saved'), 'ok');
+      window.scrollTo(0, 0);
+      setTimeout(() => location.href = App.withGuest('pass.html'), 1500);
+    } catch (err) {
+      App.msg(msg, err.message, 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Accommodation: only shown when admin enabled it for this guest.
+  if (data.accommodation && data.accommodation.eligible) {
+    const req = data.accommodation.request;
+    if (req) {
+      accForm.Nights.value = req.Nights || 1;
+      accForm.People.value = req.People || 1;
+      accForm.Needs.value = req.Needs || '';
+      document.getElementById('accStatus').textContent = I18N.t('acc.status') + ': ' + req.Status;
+    }
+    accForm.hidden = false;
+    accForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(accForm).entries());
+      try {
+        const r = await API.call('requestAccommodation', Object.assign({ guestId: id }, f));
+        document.getElementById('accStatus').textContent = I18N.t('acc.status') + ': ' + r.Status;
+        App.msg(document.getElementById('accMsg'), I18N.t('acc.saved'), 'ok');
+      } catch (err) {
+        App.msg(document.getElementById('accMsg'), err.message, 'err');
+      }
+    });
+  }
+})();

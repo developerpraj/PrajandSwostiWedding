@@ -1,0 +1,63 @@
+﻿// Service worker: makes the site installable and loads quickly / offline at the venue.
+const CACHE = 'wedding-v7';
+const THUMBS = 'wedding-thumbs';
+const SHELL = [
+  'gift.html', 'whisper.html', 'slideshow.html',
+  'css/base.css', 'css/mobile.css', 'css/memorial.css',
+  'js/config.js', 'js/api.js', 'js/i18n.js', 'js/app.js', 'js/register.js', 'js/pass.js', 'js/memorial.js',
+  'js/photos.js', 'js/games.js', 'js/gift.js',
+  'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'
+];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys()
+    .then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== THUMBS).map(k => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return; // API calls are POST - always live
+  const url = new URL(req.url);
+  if (url.pathname.indexOf('/admin/') >= 0) return;
+  // Drive thumbnails: cache first (max ~300) so galleries open instantly on weak venue networks.
+  if (url.hostname === 'drive.google.com' && url.pathname === '/thumbnail') {
+    e.respondWith(caches.open(THUMBS).then(c => c.match(req).then(hit => hit || fetch(req).then(res => {
+      if (res && (res.ok || res.type === 'opaque')) {
+        c.put(req, res.clone());
+        c.keys().then(k => { if (k.length > 300) k.slice(0, k.length - 300).forEach(x => c.delete(x)); });
+      }
+      return res;
+    }))));
+    return;
+  }
+  if (/(^|\.)google(apis|usercontent)?\.com$/.test(url.hostname) && !/fonts/.test(url.hostname)) return; // other Drive media: always live
+
+  // Pages: show cached page instantly, update it in the background (fast on phones).
+  if (req.mode === 'navigate') {
+    const net = fetch(req).then(res => {
+      const copy = res.clone();
+      caches.open(CACHE).then(c => c.put(req, copy));
+      return res;
+    });
+    e.respondWith(caches.match(req, { ignoreSearch: true }).then(hit => hit || net.catch(() => caches.match('index.html'))));
+    e.waitUntil(net.catch(() => { }));
+    return;
+  }
+
+  // Static assets (incl. fonts / QR library): cache first, refresh in background.
+  e.respondWith(caches.match(req).then(hit => {
+    const net = fetch(req).then(res => {
+      if (res && (res.ok || res.type === 'opaque')) {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(req, copy));
+      }
+      return res;
+    }).catch(() => hit);
+    return hit || net;
+  }));
+});

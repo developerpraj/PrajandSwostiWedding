@@ -1,0 +1,1 @@
+{"name":"wedding-tests","private":true,"scripts":{"test":"playwright test","test:full":"node run-full.js","seed":"node generateMockData.js","backend":"node --test backend/"},"devDependencies":{"@playwright/test":"^1.63.0","monocart-coverage-reports":"^2.13.1"}}

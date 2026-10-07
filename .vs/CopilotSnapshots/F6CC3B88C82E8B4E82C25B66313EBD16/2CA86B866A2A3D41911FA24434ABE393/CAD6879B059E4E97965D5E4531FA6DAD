@@ -1,0 +1,119 @@
+﻿// Thin client for the Apps Script API (free). Uses text/plain POST to avoid CORS preflight.
+// Speed: read-only calls are answered instantly from the phone's cache (stale-while-revalidate),
+// identical in-flight calls are shared, and writes clear the cache.
+window.API = (function () {
+  const READS = { getConfig: 300, getHome: 30, getGuest: 60, getPass: 120, getGallery: 20, getGames: 30, getLeaderboard: 15, getMemorial: 120,
+    searchPeople: 120, getNudges: 60, getInvite: 30 };
+  const NO_CLEAR = { track: 1, checkName: 1 };
+  const sid = sessionStorage.getItem('sid') || (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+  sessionStorage.setItem('sid', sid);
+  function client() { return { page: location.pathname.split('/').pop() + location.hash, ua: navigator.userAgent, sid: sid }; }
+  const inflight = {};
+
+  function key(action, data) { return 'api:' + action + ':' + JSON.stringify(data || {}); }
+
+  function read(k) {
+    try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; }
+  }
+
+  function write(k, v) {
+    try { localStorage.setItem(k, JSON.stringify({ t: Date.now(), v: v })); }
+    catch (e) { clear(); }
+  }
+
+  function clear() {
+    Object.keys(localStorage).filter(k => k.indexOf('api:') === 0).forEach(k => localStorage.removeItem(k));
+    sessionStorage.removeItem('config');
+  }
+
+  async function fetchApi(action, data) {
+    if (window.APP_CONFIG.DEMO_MODE && window.DEMO_API) {
+      if (action.indexOf('admin.') === 0 && action !== 'admin.me' && sessionStorage.getItem('adminKey') !== 'demo') throw new Error('unauthorized');
+      return window.DEMO_API.handle(action, data);
+    }
+    const url = window.APP_CONFIG.API_URL;
+    if (!url || url.indexOf('http') !== 0) throw new Error('API_URL not configured in js/config.js');
+    const body = { action: action, data: data || {}, client: client() };
+    if (action.indexOf('admin.') === 0) body.adminKey = sessionStorage.getItem('adminKey') || '';
+    let res, json;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(body)
+      });
+      json = await res.json();
+    } catch (e) {
+      throw new Error(navigator.onLine ? 'Could not reach the server. Please try again.' : 'You are offline. Please try again when connected.');
+    }
+    if (!json || !json.ok) throw new Error((json && json.error) || 'Request failed');
+    return json.data;
+  }
+
+  let active = 0, idleWaiters = [];
+  function idle() { return active ? new Promise(r => idleWaiters.push(r)) : Promise.resolve(); }
+  function live(action, data) {
+    const k = key(action, data);
+    if (!inflight[k]) {
+      active++;
+      document.dispatchEvent(new CustomEvent('api:start', { detail: { action: action } }));
+      inflight[k] = Promise.resolve().then(() => fetchApi(action, data))
+        .then(v => { if (READS[action]) write(k, v); return v; })
+        .finally(() => { delete inflight[k]; if (--active === 0) { const w = idleWaiters; idleWaiters = []; w.forEach(f => f()); } });
+    }
+    return inflight[k];
+  }
+
+  /**
+   * call(action, data, opts)
+   *  opts.fresh   - skip cache
+   *  opts.onFresh - callback(data) when newer data arrives after a cached answer was returned
+   */
+  async function call(action, data, opts) {
+    opts = opts || {};
+    const ttl = READS[action];
+    if (!ttl) {
+      const v = await live(action, data);
+      if (action.indexOf('admin.') !== 0 && !NO_CLEAR[action]) clear();
+      return v;
+    }
+    const hit = opts.fresh ? null : read(key(action, data));
+    if (hit) {
+      const age = (Date.now() - hit.t) / 1000;
+      if (age > ttl || opts.onFresh) {
+        live(action, data).then(v => { if (opts.onFresh && JSON.stringify(v) !== JSON.stringify(hit.v)) opts.onFresh(v); }).catch(() => { });
+      }
+      return hit.v;
+    }
+    return live(action, data);
+  }
+
+  // Silent activity tracking: queued and sent in batches (every 10s / on leave) to stay within free quotas.
+  const LOGQ_KEY = 'logQueue';
+  let queue = [];
+  try { queue = JSON.parse(localStorage.getItem(LOGQ_KEY) || '[]'); } catch (e) { queue = []; }
+  function flush() {
+    try {
+      const url = window.APP_CONFIG.API_URL;
+      if (!queue.length || !url || url.indexOf('http') !== 0 || !navigator.onLine) return;
+      const events = queue.splice(0, 200);
+      localStorage.setItem(LOGQ_KEY, JSON.stringify(queue));
+      fetch(url, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'trackBatch', data: { events: events }, client: client() }) })
+        .catch(() => { queue = events.concat(queue).slice(-500); localStorage.setItem(LOGQ_KEY, JSON.stringify(queue)); });
+    } catch (e) { /* ignore */ }
+  }
+  function track(event, extra) {
+    try {
+      queue.push(Object.assign({ event: event, guestId: localStorage.getItem('guestId') || '', memberId: localStorage.getItem('memberId') || '', at: new Date().toISOString(), page: location.pathname.split('/').pop() }, extra || {}));
+      if (queue.length > 500) queue = queue.slice(-500);
+      localStorage.setItem(LOGQ_KEY, JSON.stringify(queue));
+      if (queue.length >= 50) flush();
+    } catch (e) { /* ignore */ }
+  }
+  setInterval(flush, 10000);
+  addEventListener('pagehide', flush);
+  addEventListener('online', flush);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+
+  return { call: call, clearCache: clear, track: track, idle: idle };
+})();

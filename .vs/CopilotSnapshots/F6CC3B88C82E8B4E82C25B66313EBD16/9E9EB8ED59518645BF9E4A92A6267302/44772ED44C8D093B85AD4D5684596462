@@ -1,0 +1,96 @@
+﻿// Offline-first door check-in. The full guest + people list is saved on this phone; every check-in is
+// applied locally at once and queued in localStorage 'pending_checkins', then synced when a connection returns.
+window.Door = (function () {
+  const LIST = 'door_list', QUEUE = 'pending_checkins';
+  const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || '') || d; } catch (e) { return d; } };
+  const write = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+
+  function list() { return read(LIST, { guests: [], people: [], savedAt: '' }); }
+  function pending() { return read(QUEUE, []); }
+
+  function save(guests, people) {
+    const l = { guests: guests || [], people: people || [], savedAt: new Date().toISOString() };
+    // Re-apply anything still waiting so a re-download never "un-checks" someone.
+    pending().forEach(p => mark(l, p));
+    write(LIST, l);
+    return l;
+  }
+
+  function mark(l, p) {
+    const rows = p.memberId ? l.people.filter(x => x.MemberId === p.memberId) : l.guests.filter(x => x.GuestId === p.guestId);
+    rows.forEach(r => { r.CheckedIn = 'TRUE'; r.CheckedInAt = p.at; });
+    return rows.length > 0;
+  }
+
+  // Pass QR = "GuestId" or "GuestId:MemberId" (family passes); also accepts a pass.html?g= URL.
+  function parse(text) {
+    let s = String(text || '').trim();
+    const m = s.match(/[?&]g=([^&#]+)/);
+    if (m) s = decodeURIComponent(m[1]);
+    const [guestId, memberId] = s.split(':');
+    return { guestId: guestId || '', memberId: memberId || '' };
+  }
+
+  function checkIn(ref) {
+    const l = list();
+    const p = { guestId: ref.guestId || '', memberId: ref.memberId || '', at: new Date().toISOString() };
+    if (!mark(l, p)) return null;
+    write(LIST, l);
+    const q = pending();
+    if (!q.some(x => x.guestId === p.guestId && x.memberId === p.memberId)) { q.push(p); write(QUEUE, q); }
+    return p;
+  }
+
+  function search(q) {
+    q = String(q || '').trim().toLowerCase();
+    if (q.length < 2) return [];
+    const l = list(), hit = s => String(s || '').toLowerCase().indexOf(q) >= 0;
+    const q2 = pending(), wait = (g, m) => q2.some(x => x.guestId === g && (x.memberId || '') === (m || ''));
+    const phoneOf = id => (l.guests.filter(g => g.GuestId === id)[0] || {}).Phone || '';
+    const people = l.people.filter(p => hit(p.Name) || hit(p.NameNe) || hit(p.Household))
+      .map(p => ({ guestId: p.GuestId, memberId: p.MemberId, name: p.Name, nameNe: p.NameNe, sub: p.Household, band: p.Band, table: p.Table, phone: p.Phone || phoneOf(p.GuestId), pending: wait(p.GuestId, p.MemberId), in: String(p.CheckedIn).toUpperCase() === 'TRUE' }));
+    const seen = {}; people.forEach(p => seen[p.guestId] = 1);
+    const guests = l.guests.filter(g => !seen[g.GuestId] && (hit(g.Name) || hit(g.NameNe) || hit(g.Family) || hit(g.Phone) || hit(g.InviteCode)))
+      .map(g => ({ guestId: g.GuestId, memberId: '', name: g.Name, nameNe: g.NameNe, sub: g.Family, table: g.Table, phone: g.Phone || '', pending: wait(g.GuestId, ''), in: String(g.CheckedIn).toUpperCase() === 'TRUE' }));
+    return people.concat(guests).slice(0, 30);
+  }
+
+  /** Reverses a check-in made on this phone. Returns 'local' if it never left the queue, 'server' if it must be undone online. */
+  function undo(ref) {
+    const l = list(), g = ref.guestId || '', m = ref.memberId || '';
+    const rows = m ? l.people.filter(x => x.MemberId === m) : l.guests.filter(x => x.GuestId === g);
+    rows.forEach(r => { r.CheckedIn = ''; r.CheckedInAt = ''; });
+    write(LIST, l);
+    const q = pending(), left = q.filter(x => !(x.guestId === g && (x.memberId || '') === m));
+    write(QUEUE, left);
+    return left.length < q.length ? 'local' : 'server';
+  }
+
+  /** Updates the saved table number for a household on this phone. */
+  function setTable(guestId, table) {
+    const l = list();
+    l.guests.forEach(g => { if (g.GuestId === guestId) g.Table = table; });
+    l.people.forEach(p => { if (p.GuestId === guestId) p.Table = table; });
+    write(LIST, l);
+  }
+
+  // Sends queued check-ins one by one; keeps whatever fails for the next attempt.
+  let syncing = false;
+  async function sync(call) {
+    if (syncing || !navigator.onLine) return { sent: 0, left: pending().length };
+    syncing = true;
+    let sent = 0;
+    try {
+      for (const p of pending()) {
+        try {
+          await call(p.memberId ? 'admin.checkInMember' : 'admin.checkIn', p.memberId ? { memberId: p.memberId, at: p.at } : { guestId: p.guestId, at: p.at });
+          write(QUEUE, pending().filter(x => !(x.guestId === p.guestId && x.memberId === p.memberId)));
+          sent++;
+        } catch (e) { break; }
+      }
+    } finally { syncing = false; }
+    return { sent: sent, left: pending().length };
+  }
+
+  return { list, pending, save, parse, checkIn, undo, search, sync, setTable };
+})();

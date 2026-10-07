@@ -1,0 +1,11 @@
+﻿// Paste your Apps Script Web App /exec URL here after deploying apps-script/Code.gs
+window.APP_CONFIG = {
+  API_URL: 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE',
+  LIVE_REFRESH_MS: 30000,
+  ADMIN_REFRESH_MS: 15000,
+  // Local preview with fake data from demo-data/. Set to false before going live.
+  DEMO_MODE: true
+};
+if (window.APP_CONFIG.DEMO_MODE && document.currentScript) {
+  document.write('<script src="' + document.currentScript.src.replace(/js\/config\.js.*$/, 'demo-data/demo-api.js') + '"><\/script>');
+}

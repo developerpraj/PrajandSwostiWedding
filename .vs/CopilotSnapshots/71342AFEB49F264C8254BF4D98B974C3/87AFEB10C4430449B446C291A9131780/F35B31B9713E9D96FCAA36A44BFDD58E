@@ -1,0 +1,11 @@
+﻿const { test, openDemo, resetDemo } = require('./fixtures');
+test('crawl index as guest', async ({ page }) => {
+  await resetDemo(page);
+  await openDemo(page, 'index.html');
+  await page.waitForLoadState('networkidle');
+  const n = await page.locator('button').count();
+  for (let i = 0; i < n; i++) {
+    const b = page.locator('button').nth(i);
+    if (await b.isVisible().catch(() => false)) await b.click({ timeout: 1000, noWaitAfter: true }).catch(() => {});
+  }
+});

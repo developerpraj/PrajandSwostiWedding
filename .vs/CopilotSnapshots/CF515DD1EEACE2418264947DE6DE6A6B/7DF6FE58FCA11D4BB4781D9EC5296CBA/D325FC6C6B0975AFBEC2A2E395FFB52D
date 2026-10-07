@@ -1,0 +1,25 @@
+﻿# Drive backup / fallback directory
+
+Upload the whole `Wedding` folder to Google Drive (My Drive). It mirrors what the backend creates, so it fills any gap if `setup()` was never run or a sheet got lost.
+
+```
+Wedding/
+  Sheets/       one CSV per Google Sheet tab (header row = exact backend columns)
+  Uploads/      original full-quality guest photos/videos (per-event subfolders are auto-created)
+  Gift QR/      put eSewa / Khalti / Fonepay / bank QR images here (file name = label)
+  Logs/         activity log spreadsheets (auto)
+  Invitations/  generated PDF invitations
+  Proofs/       screenshot proofs
+  Backups/      put periodic CSV exports from the admin page here
+```
+
+## Restore a missing tab
+1. Open the wedding spreadsheet → `File › Import` → choose `Sheets/<Name>.csv` → **Insert new sheet**.
+2. Rename the tab to exactly `<Name>` (e.g. `Guests`).
+3. Run `setup()` once in Apps Script — it adds any newer columns without touching data.
+
+## Guest import
+Fill `Sheets/Guests.csv` (at least `Name`; useful: `Side, Relation, Family, Tags, Phone, AdmitCount, Groups`), then use **Admin › Guests › Import CSV**.
+`Tags` is comma-separated, e.g. `Groom's Family, VIP/Elders`. Leave `InviteCode` blank and click **🔑 Generate missing codes**.
+
+Magic link format: `https://<site>/index.html?c=<InviteCode>` — no password; guests are then nudged to add the app to their home screen around event days.

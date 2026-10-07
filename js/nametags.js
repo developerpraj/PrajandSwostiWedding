@@ -1,0 +1,62 @@
+(async function () {
+  const $ = id => document.getElementById(id);
+  const esc = App.esc;
+  const yes = v => v === true || String(v).toUpperCase() === 'TRUE';
+  const sideLabel = {
+    Bride: ["Bride's", 'दुलहीका'],
+    Groom: ["Groom's", 'दुलाहाका'],
+    Both: ['Family of both', 'दुवै पक्षका']
+  };
+  let guests = [];
+
+  if (!sessionStorage.getItem('adminKey')) { location.href = 'index.html'; return; }
+  try { await App.boot(); } catch (e) { /* theme optional */ }
+
+  try { guests = await API.call('admin.guests'); }
+  catch (e) { App.msg($('msg'), e.message, 'err'); return; }
+
+  function relationTag(g) {
+    const s = sideLabel[g.Side] || sideLabel.Both;
+    const relEn = g.Relation || 'Guest';
+    const relNe = g.RelationNe || g.Relation || 'अतिथि';
+    return I18N.bi(s[0] + ' ' + relEn, s[1] + ' ' + relNe);
+  }
+
+  function list() {
+    const f = $('filter').value;
+    const q = $('search').value.toLowerCase();
+    return guests.filter(g => {
+      if (f === 'registered' && !(yes(g.Registered) && g.Status !== 'Not attending')) return false;
+      if ((f === 'Bride' || f === 'Groom') && g.Side !== f) return false;
+      return !q || (String(g.Name) + ' ' + String(g.NameNe)).toLowerCase().indexOf(q) >= 0;
+    });
+  }
+
+  function render() {
+    const out = $('out');
+    const rows = list();
+    if (!rows.length) { out.innerHTML = '<p class="muted">No guests match.</p>'; return; }
+
+    if ($('mode').value === 'tags') {
+      const dot = $('showDot').checked;
+      out.innerHTML = '<div class="sheet">' + rows.map(g =>
+        '<div class="tag ' + esc(g.Side || 'Both') + '"><div class="strip"></div>' +
+        '<div class="info"><div class="muted">🪔 शुभविवाह</div>' +
+        '<div class="name">' + esc(I18N.bi(g.Name, g.NameNe)) + (dot ? '<span class="dot ' + esc(g.Band) + '"></span>' : '') + '</div>' +
+        '<div class="rel">' + esc(relationTag(g)) + '</div>' +
+        (g.Table ? '<div class="muted">' + esc(I18N.t('pass.table')) + ': ' + esc(g.Table) + '</div>' : '') +
+        '</div><div class="qr" data-qr="' + esc(g.GuestId) + '"></div></div>').join('') + '</div>';
+    } else {
+      out.innerHTML = '<div class="bands">' + rows.map(g =>
+        '<div class="wrist ' + esc(g.Band) + '"><div class="qr" data-qr="' + esc(g.GuestId) + '"></div>' +
+        '<div class="label">' + esc(I18N.bi(g.Name, g.NameNe)) + '<div style="font-weight:400">' + esc(I18N.t('band.' + g.Band)) + '</div></div>' +
+        (g.Band === 'green' ? '✅🍷' : g.Band === 'blue' ? '🍹' : g.Band === 'red' ? '🚫' : '🪪') + '</div>').join('') + '</div>';
+    }
+    out.querySelectorAll('[data-qr]').forEach(el => App.qr(el, el.dataset.qr, 3));
+  }
+
+  ['mode', 'filter', 'showDot'].forEach(id => $(id).addEventListener('change', render));
+  $('search').addEventListener('input', render);
+  document.addEventListener('langchange', render);
+  render();
+})();
